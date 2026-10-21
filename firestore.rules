@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// Regras de segurança — Missão Elétrica EsFO
+// Só e-mails cadastrados na coleção "membros" (ativos) acessam os dados.
+// Comandantes podem tudo; cadetes só o que o fluxo da missão permite.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() { return request.auth != null && request.auth.token.email_verified == true; }
+    function email() { return request.auth.token.email.lower(); }
+    function caminhoMembro() { return /databases/$(database)/documents/membros/$(email()); }
+    function membro() {
+      return logado() && exists(caminhoMembro()) && get(caminhoMembro()).data.get('ativo', true) != false;
+    }
+    function comandante() { return membro() && get(caminhoMembro()).data.perfil == 'comandante'; }
+    function mudaSo(campos) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
+    }
+
+    // Integrantes: cada um lê o próprio cadastro (para saber se tem acesso);
+    // só comandantes incluem, alteram ou removem; o cadete só marca a própria indisponibilidade.
+    match /membros/{id} {
+      allow get: if logado() && id == email();
+      allow read: if membro();
+      allow create, delete: if comandante();
+      allow update: if comandante() || (membro() && id == email() && mudaSo(['indisponivelAte']));
+    }
+
+    match /missoes/{id} {
+      allow read: if membro();
+
+      // Qualquer cadete cadastra; a missão nasce no painel, sem executor.
+      allow create: if comandante()
+        || (membro()
+            && request.resource.data.status == 'painel'
+            && request.resource.data.executor == null
+            && request.resource.data.criadoPor == email());
+
+      allow update: if comandante()
+        // Captura: só se ninguém capturou e só para si mesmo.
+        || (membro()
+            && resource.data.status == 'painel' && resource.data.executor == null
+            && request.resource.data.executor == email()
+            && request.resource.data.status == 'em_execucao'
+            && mudaSo(['status', 'executor', 'capturadaEm', 'historico']))
+        // Execução: só o executor, sem trocar o executor e sem validar.
+        || (membro()
+            && resource.data.executor == email()
+            && request.resource.data.executor == email()
+            && resource.data.status in ['em_execucao', 'aguardando_material']
+            && request.resource.data.status in ['em_execucao', 'aguardando_material', 'concluida']
+            && mudaSo(['status', 'concluidaEm', 'obs', 'tempoMin', 'materiaisUsados', 'historico', 'motivoEspera']));
+
+      allow delete: if comandante();
+    }
+
+    // Fotos comprimidas (até ~1 MB por documento).
+    match /fotos/{id} {
+      allow read: if membro();
+      allow create: if membro()
+        && request.resource.data.por == email()
+        && request.resource.data.img is string
+        && request.resource.data.img.size() < 1000000;
+      allow delete: if comandante();
+    }
+
+    // Estoque: comandantes gerem; o executor só baixa a quantidade ao concluir.
+    match /materiais/{id} {
+      allow read: if membro();
+      allow create, delete: if comandante();
+      allow update: if comandante() || (membro() && mudaSo(['qtd', 'atualizadoEm']));
+    }
+
+    match /movimentacoes/{id} {
+      allow read: if membro();
+      allow create: if membro() && request.resource.data.por == email();
+    }
+
+    match /locais/{id} {
+      allow read: if membro();
+      allow write: if comandante();
+    }
+  }
+}
