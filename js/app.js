@@ -15,6 +15,7 @@ import {
 import {
   firebaseConfig, CICLO_INICIO, HORAS_ALERTA_PAINEL, TIPOS, PRIORIDADES, PESOS,
 } from "./config.js";
+import { ic } from "./icones.js";
 
 // ---------------------------------------------------------------------
 // Inicialização
@@ -184,10 +185,11 @@ function startListeners() {
 
 function renderLogin() {
   $app.innerHTML = `<div class="centro login">
-    <div class="logo">⚡</div>
-    <h1>Missão Elétrica</h1>
-    <p>Gestão das missões de manutenção elétrica da EsFO</p>
-    <button class="btn" data-act="entrar">Entrar com Google</button>
+    <div class="brasoes"><img src="icons/apmg.png" alt="Brasão da APMG"><img src="icons/esfo.png" alt="Brasão da EsFO"></div>
+    <div class="selo">${ic("raio")} Missão Elétrica</div>
+    <h1>Gestão de Manutenção Elétrica</h1>
+    <p>Escola de Formação de Oficiais · Academia Policial Militar do Guatupê</p>
+    <button class="btn ouro" data-act="entrar">${ic("usuario")} Entrar com Google</button>
   </div>`;
 }
 
@@ -225,12 +227,16 @@ function route() {
 }
 
 function shell(titulo, corpo, ativo) {
-  const itens = [["painel", "Painel", "▦"], ["nova", "Nova", "＋"], ["minhas", "Minhas", "☰"], ["efetivo", "Efetivo", "★"], ["mais", "Mais", "⋯"]];
+  const itens = [["painel", "Painel", "painel"], ["nova", "Nova", "nova"], ["minhas", "Minhas", "minhas"], ["efetivo", "Efetivo", "efetivo"], ["mais", "Mais", "mais"]];
   $app.innerHTML = `
-    <header class="topo"><h1>${esc(titulo)}</h1>
-      <span class="quem">${esc(S.me.nome || S.me.id)}${isCmd() ? ' <b class="tag">CMT</b>' : ""}</span></header>
+    <header class="topo">
+      <img class="brasao" src="icons/apmg.png" alt="APMG">
+      <div class="titulo"><small>Missão Elétrica · EsFO</small><h1>${esc(titulo)}</h1></div>
+      <img class="brasao" src="icons/esfo.png" alt="EsFO">
+    </header>
+    <div class="faixa"><span>${ic("usuario")} ${esc(S.me.nome || S.me.id)}</span>${isCmd() ? '<b class="tag">COMANDANTE</b>' : ""}</div>
     <main>${corpo}</main>
-    <nav class="menu">${itens.map(([k, l, i]) => `<a href="#/${k}" class="${ativo === k ? "on" : ""}"><span>${i}</span>${l}</a>`).join("")}</nav>`;
+    <nav class="menu">${itens.map(([k, l, i]) => `<a href="#/${k}" class="${ativo === k ? "on" : ""}">${ic(i)}<span>${l}</span></a>`).join("")}</nav>`;
 }
 
 const opts = (lista, sel) => lista.map((o) => {
@@ -244,12 +250,13 @@ const opts = (lista, sel) => lista.map((o) => {
 function cartao(m) {
   const parada = m.status === "painel" && Date.now() - (m.criadaEm || 0) > HORAS_ALERTA_PAINEL * 3600e3;
   return `<a class="card prio-${esc(m.prioridade)}" href="#/missao/${encodeURIComponent(m.id)}">
+    <div class="tipo-ic">${ic(m.tipo)}</div><div class="card-corpo">
     <div class="linha-t"><b>${esc(m.titulo)}</b>
       ${m.risco ? '<span class="badge risco">RISCO</span>' : ""}
       ${parada ? '<span class="badge parada">PARADA</span>' : ""}</div>
-    <div class="meta">${esc(m.local)} · ${esc(m.tipo)} · ${esc(prioNome(m.prioridade))} · peso ${Number(m.peso) || 1}</div>
-    <div class="meta">${m.executor ? "Executor: " + esc(nomeDe(m.executor)) : "Cadastrada por " + esc(nomeDe(m.criadoPor))} · ${fmtData(m.criadaEm)}</div>
-  </a>`;
+    <div class="meta">${ic("local", "mini-ic")} ${esc(m.local)} · ${esc(prioNome(m.prioridade))} · peso ${Number(m.peso) || 1}</div>
+    <div class="meta">${ic("usuario", "mini-ic")} ${m.executor ? "Executor: " + esc(nomeDe(m.executor)) : "Cadastrada por " + esc(nomeDe(m.criadoPor))} · ${fmtData(m.criadaEm)}</div>
+  </div></a>`;
 }
 
 function ordenarMissoes(lista) {
@@ -268,9 +275,9 @@ function viewPainel() {
     : ordenarMissoes(lista);
   const vez = daVez();
   const paradas = S.missoes.filter((m) => m.status === "painel" && Date.now() - (m.criadaEm || 0) > HORAS_ALERTA_PAINEL * 3600e3);
-  shell("Missão Elétrica", `
-    <div class="vez">Na vez: <b>${vez ? esc(vez.nome) : "—"}</b>${vez ? ` <small>${vez.pontos} pts no ciclo</small>` : ""}</div>
-    ${isCmd() && paradas.length ? `<div class="aviso">⚠ ${paradas.length} missão(ões) parada(s) há mais de ${HORAS_ALERTA_PAINEL} h sem captura. Considere designar para <b>${vez ? esc(vez.nome) : "—"}</b>.</div>` : ""}
+  shell("Painel de Missões", `
+    <div class="vez">${ic("estrela")} Na vez: <b>${vez ? esc(vez.nome) : "—"}</b>${vez ? ` <small>${vez.pontos} pts no ciclo</small>` : ""}</div>
+    ${isCmd() && paradas.length ? `<div class="aviso">${ic("alerta")} ${paradas.length} missão(ões) parada(s) há mais de ${HORAS_ALERTA_PAINEL} h sem captura. Considere designar para <b>${vez ? esc(vez.nome) : "—"}</b>.</div>` : ""}
     <div class="abas">${abas.map(([k, l]) => `<button data-act="aba" data-aba="${k}" class="${k === tab ? "on" : ""}">${l} <small>${S.missoes.filter((m) => m.status === k).length}</small></button>`).join("")}</div>
     <select id="filtroTipo"><option value="">Todos os tipos</option>${opts(TIPOS, S.filtroTipo)}</select>
     ${lista.length ? lista.map(cartao).join("") : '<p class="vazio">Nenhuma missão aqui.</p>'}
@@ -294,8 +301,8 @@ function viewNova() {
       <label class="check"><input type="checkbox" name="risco"> Risco à segurança (fio exposto, cheiro de queimado, choque)</label>
       <label>Descrição<textarea name="descricao" rows="3" placeholder="Detalhes que ajudem quem vai executar"></textarea></label>
       <label>Materiais necessários (se souber)<input name="materiais" placeholder="Ex.: 2 lâmpadas LED 9 W"></label>
-      <label>Foto do problema<input type="file" name="foto" accept="image/*" capture="environment"></label>
-      <button class="btn">Cadastrar missão</button>
+      <label>${ic("foto", "mini-ic")} Foto do problema<input type="file" name="foto" accept="image/*" capture="environment"></label>
+      <button class="btn">${ic("nova")} Cadastrar missão</button>
     </form>`, "nova");
 }
 
@@ -320,7 +327,7 @@ async function salvarNova(f) {
       await addDoc(collection(db, "fotos"), { missaoId: ref.id, tipo: "antes", img: await comprimir(d.foto), por: S.me.id, em: Date.now() });
     }
   }, "Missão cadastrada");
-  btn.disabled = false; btn.textContent = "Cadastrar missão";
+  btn.disabled = false; btn.innerHTML = `${ic("nova")} Cadastrar missão`;
   if (ok && novoId) { S.dirty = false; location.hash = "#/missao/" + novoId; }
 }
 
@@ -335,38 +342,38 @@ function viewMissao(id) {
   let acoes = "";
 
   if (m.status === "painel") {
-    acoes += `<button class="btn" data-act="capturar">Capturar missão</button>`;
+    acoes += `<button class="btn" data-act="capturar">${ic("capturar")} Capturar missão</button>`;
     if (isCmd()) {
       const ef = efetivo().filter((x) => !x.indisp);
       acoes += `<div class="linha">
         <select id="designarSel">${ef.map((x, i) => `<option value="${esc(x.id)}">${i === 0 ? "★ " : ""}${esc(x.nome)} — ${x.pontos} pts, ${x.andamento} em andamento</option>`).join("")}</select>
-        <button class="btn sec" data-act="designar">Designar</button></div>
-        <button class="btn perigo" data-act="arquivar">Arquivar (duplicada)</button>`;
+        <button class="btn sec" data-act="designar">${ic("designar")} Designar</button></div>
+        <button class="btn perigo" data-act="arquivar">${ic("arquivar")} Arquivar (duplicada)</button>`;
     }
   }
   if (m.status === "em_execucao" && (souExec || isCmd())) {
-    acoes += `<button class="btn sec" data-act="esperar">Aguardando material</button>`;
+    acoes += `<button class="btn sec" data-act="esperar">${ic("esperar")} Aguardando material</button>`;
     if (souExec) acoes += formConcluir();
   }
   if (m.status === "aguardando_material" && (souExec || isCmd())) {
-    acoes += `<button class="btn" data-act="retomar">Material chegou — retomar</button>`;
+    acoes += `<button class="btn" data-act="retomar">${ic("retomar")} Material chegou — retomar</button>`;
   }
   if (m.status === "concluida" && isCmd()) {
-    acoes += `<button class="btn" data-act="validar">Validar conclusão</button>
-      <button class="btn perigo" data-act="reprovar">Reprovar (refazer)</button>`;
+    acoes += `<button class="btn verde" data-act="validar">${ic("validar")} Validar conclusão</button>
+      <button class="btn perigo" data-act="reprovar">${ic("reprovar")} Reprovar (refazer)</button>`;
   }
   if (isCmd() && !final) {
     acoes += `<div class="box"><h3>Ajustes do comandante</h3><div class="dupla">
       <label>Prioridade<select id="cmdPrio">${opts(PRIORIDADES, m.prioridade)}</select></label>
       <label>Peso<select id="cmdPeso">${opts(PESOS, m.peso || 1)}</select></label></div>
-      <button class="btn sec" data-act="ajustar">Salvar ajustes</button></div>`;
+      <button class="btn sec" data-act="ajustar">${ic("salvar")} Salvar ajustes</button></div>`;
   }
 
   const usados = (m.materiaisUsados || []).map((u) => `${u.qtd} ${esc(u.unidade)} ${esc(u.nome)}`).join(", ");
   const hist = [...(m.historico || [])].sort((a, b) => b.em - a.em);
   shell("Missão", `
     <div class="det">
-      <h2>${esc(m.titulo)}</h2>
+      <div class="det-topo"><div class="tipo-ic grande">${ic(m.tipo)}</div><h2>${esc(m.titulo)}</h2></div>
       <div><span class="badge st-${m.status}">${STATUS[m.status] || m.status}</span>
         ${m.risco ? '<span class="badge risco">RISCO</span>' : ""}</div>
       ${m.descricao ? `<p>${esc(m.descricao)}</p>` : ""}
@@ -383,9 +390,9 @@ function viewMissao(id) {
         ${m.obs ? `<dt>Observações</dt><dd>${esc(m.obs)}</dd>` : ""}
         ${m.validadaEm ? `<dt>Validada</dt><dd>${esc(nomeDe(m.validadoPor))} em ${fmtDH(m.validadaEm)}</dd>` : ""}
       </dl>
-      <h3>Fotos</h3><div id="fotos" class="fotos"><p class="vazio">Carregando…</p></div>
+      <h3>${ic("foto", "mini-ic")} Fotos</h3><div id="fotos" class="fotos"><p class="vazio">Carregando…</p></div>
       ${acoes ? `<div class="acoes">${acoes}</div>` : ""}
-      <h3>Histórico</h3>
+      <h3>${ic("calendario", "mini-ic")} Histórico</h3>
       <ul class="hist">${hist.map((h) => `<li><small>${fmtDH(h.em)}</small> ${esc(nomeDe(h.por))}: ${esc(h.acao)}</li>`).join("")}</ul>
     </div>`, "painel");
   carregarFotos(id);
@@ -407,13 +414,13 @@ async function carregarFotos(id) {
 }
 
 function formConcluir() {
-  return `<form id="fConcluir" class="box"><h3>Concluir missão</h3>
-    <label>Fotos de depois<input type="file" name="fotosDepois" accept="image/*" multiple></label>
+  return `<form id="fConcluir" class="box destaque"><h3>${ic("concluir", "mini-ic")} Concluir missão</h3>
+    <label>${ic("foto", "mini-ic")} Fotos do serviço concluído<input type="file" name="fotosDepois" accept="image/*" multiple></label>
     <div id="usados"></div>
-    <button type="button" class="btn sec" data-act="addUsado">+ Material usado</button>
+    <button type="button" class="btn sec" data-act="addUsado">${ic("materiais")} Material usado</button>
     <label>Tempo gasto (min)<input type="number" name="tempo" min="0" inputmode="numeric"></label>
     <label>Observações<textarea name="obs" rows="2"></textarea></label>
-    <button class="btn">Concluir missão</button>
+    <button class="btn verde">${ic("concluir")} Concluir missão</button>
   </form>`;
 }
 
@@ -445,7 +452,7 @@ async function concluir(f) {
     await b.commit();
   }, "Missão concluída — aguardando validação");
   delete S.fotos[id];
-  if (ok) { S.dirty = false; route(); } else { btn.disabled = false; btn.textContent = "Concluir missão"; }
+  if (ok) { S.dirty = false; route(); } else { btn.disabled = false; btn.innerHTML = `${ic("concluir")} Concluir missão`; }
 }
 
 // ---------------------------------------------------------------------
@@ -459,13 +466,13 @@ function viewMinhas() {
   const feitas = S.missoes.filter((m) => m.executor === eu && m.status === "validada").sort((a, b) => b.validadaEm - a.validadaEm);
   shell("Minhas missões", `
     <div class="stats">
-      <div><b>${meu.pontos}</b><small>pontos no ciclo</small></div>
-      <div><b>${meu.concluidas}</b><small>concluídas</small></div>
-      <div><b>${meu.andamento}</b><small>em andamento</small></div>
+      <div>${ic("estrela")}<b>${meu.pontos}</b><small>pontos no ciclo</small></div>
+      <div>${ic("concluir")}<b>${meu.concluidas}</b><small>concluídas</small></div>
+      <div>${ic("capturar")}<b>${meu.andamento}</b><small>em andamento</small></div>
     </div>
     <form id="fIndisp" class="box linha">
       <label>Indisponível até<input type="date" name="ate" value="${esc(S.me.indisponivelAte || "")}"></label>
-      <button class="btn sec">Salvar</button>
+      <button class="btn sec">${ic("salvar")} Salvar</button>
     </form>
     <h3>Em andamento</h3>${and.length ? and.map(cartao).join("") : '<p class="vazio">Nenhuma.</p>'}
     <h3>Cadastradas por mim (abertas)</h3>${cad.length ? cad.map(cartao).join("") : '<p class="vazio">Nenhuma.</p>'}
@@ -489,10 +496,10 @@ function viewEfetivo() {
 function viewMais() {
   shell("Mais", `
     <div class="lista-links">
-      <a href="#/materiais">Materiais e estoque</a>
-      <a href="#/relatorios">Relatórios</a>
-      ${isCmd() ? '<a href="#/admin">Administração (integrantes e locais)</a>' : ""}
-      <button class="link" data-act="sair">Sair (${esc(S.me.id)})</button>
+      <a href="#/materiais">${ic("materiais")}<span>Materiais e estoque<small>Estoque, entradas e lista de compras</small></span></a>
+      <a href="#/relatorios">${ic("relatorios")}<span>Relatórios<small>Missões concluídas em PDF ou planilha</small></span></a>
+      ${isCmd() ? `<a href="#/admin">${ic("admin")}<span>Administração<small>Integrantes, comandantes e locais</small></span></a>` : ""}
+      <button class="link" data-act="sair">${ic("sair")}<span>Sair<small>${esc(S.me.id)}</small></span></button>
     </div>
     <p class="dica">Para instalar no celular: no Chrome (Android), menu ⋮ › "Instalar app"; no Safari (iPhone), Compartilhar › "Adicionar à Tela de Início".</p>
   `, "mais");
@@ -504,16 +511,16 @@ function viewMais() {
 function viewMateriais() {
   const faltando = S.materiais.filter((m) => Number(m.qtd) < Number(m.min || 0));
   shell("Materiais", `
-    ${faltando.length ? `<div class="aviso"><b>Lista de compras</b><ul>${faltando.map((m) => `<li>${esc(m.nome)}: tem ${m.qtd} ${esc(m.unidade)}, mínimo ${m.min}</li>`).join("")}</ul></div>` : ""}
+    ${faltando.length ? `<div class="aviso">${ic("alerta")} <b>Lista de compras</b><ul>${faltando.map((m) => `<li>${esc(m.nome)}: tem ${m.qtd} ${esc(m.unidade)}, mínimo ${m.min}</li>`).join("")}</ul></div>` : ""}
     <table class="tab">
       <tr><th>Material</th><th>Qtd</th><th>Mín.</th>${isCmd() ? "<th></th>" : ""}</tr>
       ${S.materiais.map((m) => `<tr class="${Number(m.qtd) < Number(m.min || 0) ? "baixo" : ""}">
         <td>${esc(m.nome)}</td><td>${m.qtd} ${esc(m.unidade)}</td><td>${m.min || 0}</td>
-        ${isCmd() ? `<td class="nowrap"><button class="mini" data-act="entrada" data-id="${esc(m.id)}">+ Entrada</button>
-          <button class="mini perigo" data-act="delMat" data-id="${esc(m.id)}">✕</button></td>` : ""}</tr>`).join("")}
+        ${isCmd() ? `<td class="nowrap"><button class="mini" data-act="entrada" data-id="${esc(m.id)}">${ic("entrada", "mini-ic")} Entrada</button>
+          <button class="mini perigo" data-act="delMat" data-id="${esc(m.id)}" title="Excluir">${ic("excluir", "mini-ic")}</button></td>` : ""}</tr>`).join("")}
     </table>
     ${S.materiais.length ? "" : '<p class="vazio">Nenhum material cadastrado.</p>'}
-    <button class="btn sec" data-act="exportar" data-tipo="materiais">Exportar planilha</button>
+    <button class="btn sec" data-act="exportar" data-tipo="materiais">${ic("exportar")} Exportar planilha</button>
     ${isCmd() ? `
     <form id="fMaterial" class="box"><h3>Cadastrar ou atualizar material</h3>
       <label>Nome*<input name="nome" required placeholder="Ex.: Lâmpada LED 9 W"></label>
@@ -522,7 +529,7 @@ function viewMateriais() {
         <label>Quantidade<input name="qtd" type="number" min="0" step="any" value="0"></label>
         <label>Mínimo<input name="min" type="number" min="0" step="any" value="0"></label>
       </div>
-      <button class="btn">Salvar material</button>
+      <button class="btn">${ic("salvar")} Salvar material</button>
     </form>
     ${painelImport("materiais")}` : ""}
   `, "mais");
@@ -548,7 +555,7 @@ function viewRelatorios() {
       <label>Cadete<select id="relCadete"><option value="">Todos</option>${opts(S.membros.map((m) => [m.id, m.nome]), cadete)}</select></label>
     </div>
     <div class="impresso">
-      <h2>Relatório de missões concluídas — Missão Elétrica EsFO</h2>
+      <div class="cab-rel"><img src="icons/apmg.png" alt=""><div><b>Academia Policial Militar do Guatupê · Escola de Formação de Oficiais</b><h2>Relatório de missões concluídas — Missão Elétrica</h2></div><img src="icons/esfo.png" alt=""></div>
       <p>Período: ${fmtData(ini)} a ${fmtData(fim)}${cadete ? " · Cadete: " + esc(nomeDe(cadete)) : ""} · ${lista.length} missões · ${pontos} pontos</p>
       ${!cadete && lista.length ? `<p><b>Por cadete:</b> ${Object.entries(porCadete).sort((a, b) => b[1] - a[1]).map(([e, n]) => `${esc(nomeDe(e))} (${n})`).join(", ")}</p>` : ""}
       <table class="tab">
@@ -560,8 +567,8 @@ function viewRelatorios() {
       ${lista.length ? "" : '<p class="vazio">Nenhuma missão validada no período.</p>'}
     </div>
     <div class="linha no-print">
-      <button class="btn" data-act="imprimir">Gerar PDF / Imprimir</button>
-      <button class="btn sec" data-act="exportar" data-tipo="relatorio">Exportar planilha</button>
+      <button class="btn" data-act="imprimir">${ic("imprimir")} Gerar PDF / Imprimir</button>
+      <button class="btn sec" data-act="exportar" data-tipo="relatorio">${ic("exportar")} Exportar planilha</button>
     </div>`, "mais");
 }
 
@@ -578,20 +585,20 @@ function viewAdmin() {
         <td>${esc(m.nome)}<br><small>${esc(m.id)}</small></td>
         <td><select data-perfil="${esc(m.id)}" ${m.id === S.me.id ? 'disabled title="Você não pode alterar o próprio perfil"' : ""}>${opts([["cadete", "Cadete"], ["comandante", "Comandante"]], m.perfil)}</select></td>
         <td><input type="checkbox" data-ativo="${esc(m.id)}" ${m.ativo !== false ? "checked" : ""} ${m.id === S.me.id ? "disabled" : ""}></td>
-        <td>${m.id !== S.me.id ? `<button class="mini perigo" data-act="delMembro" data-id="${esc(m.id)}">✕</button>` : ""}</td></tr>`).join("")}
+        <td>${m.id !== S.me.id ? `<button class="mini perigo" data-act="delMembro" data-id="${esc(m.id)}" title="Remover">${ic("excluir", "mini-ic")}</button>` : ""}</td></tr>`).join("")}
     </table>
     <form id="fMembro" class="box"><h3>Incluir integrante</h3>
       <label>E-mail Google*<input name="email" type="email" required placeholder="nome@gmail.com"></label>
       <label>Nome de guerra*<input name="nome" required placeholder="Cad. Fulano"></label>
       <label>Perfil<select name="perfil">${opts([["cadete", "Cadete"], ["comandante", "Comandante"]])}</select></label>
-      <button class="btn">Incluir</button>
+      <button class="btn">${ic("designar")} Incluir</button>
     </form>
     ${painelImport("membros")}
     <h3>Locais (${S.locais.length})</h3>
-    <ul class="locais">${S.locais.map((l) => `<li>${esc(l.nome)} <button class="mini perigo" data-act="delLocal" data-id="${esc(l.id)}">✕</button></li>`).join("")}</ul>
+    <ul class="locais">${S.locais.map((l) => `<li>${esc(l.nome)} <button class="mini perigo" data-act="delLocal" data-id="${esc(l.id)}" title="Remover">${ic("excluir", "mini-ic")}</button></li>`).join("")}</ul>
     <form id="fLocal" class="box linha">
       <label>Novo local<input name="nome" required placeholder="Ex.: Bloco B – Sala de aula 2"></label>
-      <button class="btn sec">Incluir</button>
+      <button class="btn sec">${ic("local")} Incluir</button>
     </form>
     ${painelImport("locais")}
   `, "mais");
@@ -638,8 +645,8 @@ function painelImport(tipo) {
   return `<div class="box"><h3>Importar ${M.titulo} de planilha</h3>
     <p class="dica">Colunas: ${M.cab.join(", ")}. Itens já cadastrados são atualizados, sem duplicar.${tipo === "materiais" ? " A quantidade da planilha substitui o estoque atual." : ""}</p>
     <div class="linha">
-      <button class="btn sec" data-act="modelo" data-tipo="${tipo}">Baixar modelo</button>
-      <label class="btn sec arquivo">Escolher planilha<input type="file" accept=".xlsx,.xls,.csv" data-import="${tipo}" hidden></label>
+      <button class="btn sec" data-act="modelo" data-tipo="${tipo}">${ic("exportar")} Baixar modelo</button>
+      <label class="btn sec arquivo">${ic("importar")} Escolher planilha<input type="file" accept=".xlsx,.xls,.csv" data-import="${tipo}" hidden></label>
     </div>
     <div id="prev-${tipo}"></div></div>`;
 }
@@ -663,7 +670,7 @@ async function lerPlanilha(input) {
     ${ok.length ? `<table class="tab"><tr>${M.cab.map((c) => `<th>${c}</th>`).join("")}</tr>
       ${ok.slice(0, 30).map((r) => `<tr>${r.prev.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</table>
       ${ok.length > 30 ? `<p class="dica">… e mais ${ok.length - 30}.</p>` : ""}
-      <button class="btn" data-act="confirmarImport">Gravar ${ok.length} registro(s)</button>` : ""}`;
+      <button class="btn" data-act="confirmarImport">${ic("salvar")} Gravar ${ok.length} registro(s)</button>` : ""}`;
 }
 
 async function confirmarImport() {
