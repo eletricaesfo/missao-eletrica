@@ -508,31 +508,121 @@ function viewMais() {
 // ---------------------------------------------------------------------
 // Materiais
 // ---------------------------------------------------------------------
+// Categorias de material (ícone + palavras-chave para sugerir a categoria pelo nome)
+const CATS_MAT = [
+  ["Iluminação", "Iluminação", /lampada|reator|soquete|luminaria|refletor|plafon|led/],
+  ["Tomadas e interruptores", "Tomadas e interruptores", /tomada|interruptor|placa|plugue|pino/],
+  ["Fiação", "Fiação", /cabo|fio|fiacao|conector|wago|terminal|ilhos|fita|emenda/],
+  ["Disjuntores e quadros", "Quadros e disjuntores", /disjuntor|\bdr\b|quadro|barramento|dps/],
+  ["Chuveiros", "Chuveiros", /chuveiro|resistencia|ducha/],
+  ["Ventiladores", "Ventiladores e equipamentos", /ventilador|capacitor|exaustor/],
+  ["Eletrodutos e caixas", "materiais", /eletroduto|condulete|caixa|curva|luva|abracadeira|conduite/],
+  ["Outros", "Outros", /$^/],
+];
+const NOMES_CATS = CATS_MAT.map(([n]) => n);
+const semAcento = (t) => String(t ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+function inferirCategoria(nome) {
+  const n = semAcento(nome);
+  if (/^(cabo|fio|fita|conector|terminal)/.test(n)) return "Fiação";
+  // Itens mais específicos primeiro (ex.: "ventilador de teto com luminária" é Ventilador)
+  const ordem = ["Chuveiros", "Ventiladores", "Disjuntores e quadros", "Iluminação", "Tomadas e interruptores", "Eletrodutos e caixas", "Fiação"];
+  const c = ordem.map((o) => CATS_MAT.find(([x]) => x === o)).find(([, , re]) => re.test(n));
+  return c ? c[0] : "Outros";
+}
+const catDe = (m) => (NOMES_CATS.includes(m.categoria) ? m.categoria : inferirCategoria(m.nome));
+const baixo = (m) => Number(m.qtd) < Number(m.min || 0);
+
+function itemMaterial(m) {
+  const aberto = S.matSel === m.id;
+  return `<div class="mat-item ${baixo(m) ? "baixo" : ""} ${aberto ? "aberto" : ""}" data-busca="${esc(semAcento(m.nome))}">
+    <button class="mat-linha" data-act="matItem" data-id="${esc(m.id)}">
+      <span class="mat-nome">${esc(m.nome)}</span>
+      <span class="mat-qtd">${baixo(m) ? ic("alerta", "mini-ic") : ""} ${m.qtd} ${esc(m.unidade)}</span>
+    </button>
+    ${aberto ? `<div class="mat-det">
+      <div class="mat-info">
+        <div><small>Em estoque</small><b>${m.qtd} ${esc(m.unidade)}</b></div>
+        <div><small>Mínimo</small><b>${m.min || 0} ${esc(m.unidade)}</b></div>
+        <div><small>Categoria</small><b>${esc(catDe(m))}</b></div>
+      </div>
+      ${baixo(m) ? `<p class="dica">${ic("alerta", "mini-ic")} Abaixo do mínimo: faltam ${Number(m.min) - Number(m.qtd)} ${esc(m.unidade)}.</p>` : ""}
+      ${isCmd() ? `<div class="linha">
+        <button class="btn" data-act="entrada" data-id="${esc(m.id)}">${ic("entrada")} Entrada</button>
+        <button class="btn sec" data-act="ajustarMat" data-id="${esc(m.id)}">${ic("salvar")} Ajustar</button>
+        <button class="btn perigo" data-act="delMat" data-id="${esc(m.id)}">${ic("excluir")} Excluir</button>
+      </div>` : ""}
+    </div>` : ""}
+  </div>`;
+}
+
 function viewMateriais() {
-  const faltando = S.materiais.filter((m) => Number(m.qtd) < Number(m.min || 0));
+  S.matAbertos ||= new Set();
+  const faltando = S.materiais.filter(baixo);
+  const grupos = NOMES_CATS.map((nome) => ({
+    nome, icone: CATS_MAT.find(([n]) => n === nome)[1],
+    itens: S.materiais.filter((m) => catDe(m) === nome),
+  })).filter((g) => g.itens.length);
+  const painel = S.matPainel;
   shell("Materiais", `
-    ${faltando.length ? `<div class="aviso">${ic("alerta")} <b>Lista de compras</b><ul>${faltando.map((m) => `<li>${esc(m.nome)}: tem ${m.qtd} ${esc(m.unidade)}, mínimo ${m.min}</li>`).join("")}</ul></div>` : ""}
-    <table class="tab">
-      <tr><th>Material</th><th>Qtd</th><th>Mín.</th>${isCmd() ? "<th></th>" : ""}</tr>
-      ${S.materiais.map((m) => `<tr class="${Number(m.qtd) < Number(m.min || 0) ? "baixo" : ""}">
-        <td>${esc(m.nome)}</td><td>${m.qtd} ${esc(m.unidade)}</td><td>${m.min || 0}</td>
-        ${isCmd() ? `<td class="nowrap"><button class="mini" data-act="entrada" data-id="${esc(m.id)}">${ic("entrada", "mini-ic")} Entrada</button>
-          <button class="mini perigo" data-act="delMat" data-id="${esc(m.id)}" title="Excluir">${ic("excluir", "mini-ic")}</button></td>` : ""}</tr>`).join("")}
-    </table>
-    ${S.materiais.length ? "" : '<p class="vazio">Nenhum material cadastrado.</p>'}
-    <button class="btn sec" data-act="exportar" data-tipo="materiais">${ic("exportar")} Exportar planilha</button>
-    ${isCmd() ? `
-    <form id="fMaterial" class="box"><h3>Cadastrar ou atualizar material</h3>
+    <div class="mat-acoes">
+      ${isCmd() ? `<button class="btn ${painel === "novo" ? "" : "sec"}" data-act="matPainel" data-p="novo">${ic("nova")} Novo material</button>
+      <button class="btn ${painel === "importar" ? "" : "sec"}" data-act="matPainel" data-p="importar">${ic("importar")} Importar</button>` : ""}
+      <button class="btn sec" data-act="exportar" data-tipo="materiais">${ic("exportar")} Exportar</button>
+    </div>
+    ${painel === "novo" && isCmd() ? `
+    <form id="fMaterial" class="box"><h3>${ic("nova", "mini-ic")} Cadastrar ou atualizar material</h3>
       <label>Nome*<input name="nome" required placeholder="Ex.: Lâmpada LED 9 W"></label>
+      <label>Categoria<select name="categoria"><option value="">Automática (pelo nome)</option>${opts(NOMES_CATS)}</select></label>
       <div class="dupla">
         <label>Unidade<input name="unidade" value="un"></label>
         <label>Quantidade<input name="qtd" type="number" min="0" step="any" value="0"></label>
         <label>Mínimo<input name="min" type="number" min="0" step="any" value="0"></label>
       </div>
       <button class="btn">${ic("salvar")} Salvar material</button>
-    </form>
-    ${painelImport("materiais")}` : ""}
+      <button type="button" class="btn sec" data-act="matPainel" data-p="">Cancelar</button>
+    </form>` : ""}
+    ${painel === "importar" && isCmd() ? painelImport("materiais") : ""}
+    ${faltando.length ? `<details class="aviso compras"><summary>${ic("alerta")} <b>${faltando.length} item(ns) abaixo do mínimo</b> · ver lista de compras</summary>
+      <ul>${faltando.map((m) => `<li>${esc(m.nome)}: tem ${m.qtd} ${esc(m.unidade)}, mínimo ${m.min}</li>`).join("")}</ul></details>` : ""}
+    ${S.materiais.length ? `
+    <div class="busca">${ic("relatorios", "mini-ic")}<input id="matBusca" type="search" placeholder="Buscar material (ex.: disjuntor)" autocomplete="off"></div>
+    <div id="matGrupos">
+    ${grupos.map((g) => {
+      const nBaixo = g.itens.filter(baixo).length;
+      return `<details class="grupo" data-grupo="${esc(g.nome)}" ${S.matAbertos.has(g.nome) ? "open" : ""}>
+        <summary><span class="tipo-ic">${ic(g.icone)}</span>
+          <span class="grupo-nome">${esc(g.nome)}<small>${g.itens.length} ${g.itens.length === 1 ? "item" : "itens"}</small></span>
+          ${nBaixo ? `<span class="badge parada">${nBaixo} abaixo</span>` : ""}
+          <span class="seta">›</span></summary>
+        <div class="grupo-itens">${g.itens.map(itemMaterial).join("")}</div>
+      </details>`;
+    }).join("")}
+    </div>
+    <p class="vazio" id="matNada" hidden>Nenhum material encontrado.</p>` : '<p class="vazio">Nenhum material cadastrado.</p>'}
   `, "mais");
+  // Lembra quais grupos ficaram abertos
+  document.querySelectorAll("details.grupo").forEach((d) => d.addEventListener("toggle", () => {
+    if (document.getElementById("matBusca")?.value) return;
+    d.open ? S.matAbertos.add(d.dataset.grupo) : S.matAbertos.delete(d.dataset.grupo);
+  }));
+}
+
+function filtrarMateriais(texto) {
+  const t = semAcento(texto.trim());
+  let total = 0;
+  document.querySelectorAll("details.grupo").forEach((g) => {
+    let n = 0;
+    g.querySelectorAll(".mat-item").forEach((it) => {
+      const ok = !t || it.dataset.busca.includes(t);
+      it.hidden = !ok;
+      if (ok) n++;
+    });
+    g.hidden = n === 0;
+    g.open = t ? n > 0 : S.matAbertos.has(g.dataset.grupo);
+    total += n;
+  });
+  const nada = document.getElementById("matNada");
+  if (nada) nada.hidden = total > 0;
 }
 
 // ---------------------------------------------------------------------
@@ -609,7 +699,7 @@ function viewAdmin() {
 // ---------------------------------------------------------------------
 const MODELOS = {
   materiais: {
-    titulo: "materiais", cab: ["Nome", "Unidade", "Quantidade", "Minimo"],
+    titulo: "materiais", cab: ["Nome", "Unidade", "Quantidade", "Minimo", "Categoria"],
     conv: (r) => {
       const nome = String(r.nome ?? "").trim();
       if (!nome) return { erro: "sem nome" };
@@ -617,7 +707,9 @@ const MODELOS = {
       const min = Number(String(r.minimo ?? 0).replace(",", "."));
       if (!(qtd >= 0)) return { erro: `quantidade inválida (${r.quantidade})` };
       const unidade = String(r.unidade || "un").trim();
-      return { id: slug(nome), dados: { nome, unidade, qtd, min: min >= 0 ? min : 0, atualizadoEm: Date.now() }, prev: [nome, unidade, qtd, min || 0] };
+      const cInf = String(r.categoria ?? "").trim();
+      const categoria = NOMES_CATS.find((c) => semAcento(c) === semAcento(cInf)) || inferirCategoria(nome);
+      return { id: slug(nome), dados: { nome, unidade, qtd, min: min >= 0 ? min : 0, categoria, atualizadoEm: Date.now() }, prev: [nome, unidade, qtd, min || 0, categoria] };
     },
   },
   membros: {
@@ -683,7 +775,7 @@ async function confirmarImport() {
       await b.commit();
     }
   }, `${ok.length} registro(s) importado(s)`);
-  if (sucesso) { S.importPend = null; S.dirty = false; route(); }
+  if (sucesso) { S.importPend = null; S.dirty = false; S.matPainel = null; route(); }
 }
 
 async function baixarModelo(tipo) {
@@ -697,7 +789,7 @@ async function exportar(tipo) {
   const X = await xlsx();
   let linhas, nome;
   if (tipo === "materiais") {
-    linhas = S.materiais.map((m) => ({ Nome: m.nome, Unidade: m.unidade, Quantidade: m.qtd, Minimo: m.min || 0 }));
+    linhas = S.materiais.map((m) => ({ Nome: m.nome, Unidade: m.unidade, Quantidade: m.qtd, Minimo: m.min || 0, Categoria: catDe(m) }));
     nome = `materiais-${hojeISO()}.xlsx`;
   } else {
     const { de, ate, cadete } = S.rel;
@@ -793,6 +885,21 @@ const ACOES = {
       await batch.commit();
     }, "Entrada registrada");
   },
+  matItem: (b) => { S.matSel = S.matSel === b.dataset.id ? null : b.dataset.id; const busca = document.getElementById("matBusca")?.value || ""; route(); if (busca) { document.getElementById("matBusca").value = busca; filtrarMateriais(busca); } },
+  matPainel: (b) => { S.matPainel = S.matPainel === b.dataset.p ? null : (b.dataset.p || null); S.dirty = false; route(); },
+  ajustarMat: (b) => {
+    const m = S.materiais.find((x) => x.id === b.dataset.id);
+    const v = prompt(`Quantidade correta em estoque de "${m.nome}" (${m.unidade}):`, m.qtd);
+    if (v === null) return;
+    const q = Number(String(v).replace(",", "."));
+    if (!(q >= 0)) return toast("Quantidade inválida", true);
+    return acao(async () => {
+      const batch = writeBatch(db);
+      batch.update(doc(db, "materiais", m.id), { qtd: q, atualizadoEm: Date.now() });
+      batch.set(doc(collection(db, "movimentacoes")), { materialId: m.id, tipo: "ajuste", qtd: q - Number(m.qtd), por: S.me.id, em: Date.now() });
+      await batch.commit();
+    }, "Estoque ajustado");
+  },
   delMat: (b) => confirm("Excluir este material?") && acao(() => deleteDoc(doc(db, "materiais", b.dataset.id)), "Material excluído"),
   delMembro: (b) => protegeComandante(b.dataset.id, true) && confirm(`Remover ${b.dataset.id} da missão?`) && acao(() => deleteDoc(doc(db, "membros", b.dataset.id)), "Integrante removido"),
   delLocal: (b) => acao(() => deleteDoc(doc(db, "locais", b.dataset.id)), "Local removido"),
@@ -822,8 +929,9 @@ const FORMS = {
     const d = Object.fromEntries(new FormData(f));
     const nome = d.nome.trim();
     return acao(() => setDoc(doc(db, "materiais", slug(nome)), {
-      nome, unidade: d.unidade.trim() || "un", qtd: Number(d.qtd) || 0, min: Number(d.min) || 0, atualizadoEm: Date.now(),
-    }, { merge: true }), "Material salvo").then((ok) => { if (ok) { S.dirty = false; route(); } });
+      nome, unidade: d.unidade.trim() || "un", qtd: Number(d.qtd) || 0, min: Number(d.min) || 0,
+      categoria: d.categoria || inferirCategoria(nome), atualizadoEm: Date.now(),
+    }, { merge: true }), "Material salvo").then((ok) => { if (ok) { S.dirty = false; S.matPainel = null; route(); } });
   },
   fMembro: (f) => {
     const d = Object.fromEntries(new FormData(f));
@@ -844,7 +952,10 @@ $app.addEventListener("submit", (e) => {
   h(e.target);
 });
 
-$app.addEventListener("input", (e) => { if (e.target.closest("form")) S.dirty = true; });
+$app.addEventListener("input", (e) => {
+  if (e.target.id === "matBusca") return filtrarMateriais(e.target.value);
+  if (e.target.closest("form")) S.dirty = true;
+});
 
 $app.addEventListener("change", async (e) => {
   const t = e.target;
