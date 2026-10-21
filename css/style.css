@@ -224,8 +224,16 @@ label.check input { width: auto; margin: 0; }
 .mat-item.baixo .mat-qtd { color: var(--laranja); }
 .mat-item.aberto { background: #f6f8fc; border-left: 4px solid var(--ouro); }
 .mat-det { padding: 0 14px 12px; }
-.mat-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 6px; }
+.mat-info { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 6px; }
 .mat-info div { background: #fff; border: 1px solid var(--borda); border-radius: 8px; padding: 8px; }
 .mat-info small { display: block; font-size: .72rem; }
 .mat-info b { color: var(--azul); font-size: .95rem; }
 .mat-det .btn { padding: 9px 12px; font-size: .9rem; }
+
+/* Lista de compras */
+.abas-mat button { display: inline-flex; align-items: center; gap: 6px; }
+.compra { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--borda);
+  border-left: 4px solid var(--ouro); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.compra.ok { border-left-color: var(--verde); opacity: .75; border-width: 0 0 1px; border-radius: 0; margin: 0; }
+.compra-txt { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.compra-bt { display: flex; gap: 6px; }
