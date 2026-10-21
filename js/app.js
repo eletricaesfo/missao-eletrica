@@ -355,9 +355,6 @@ function viewMissao(id) {
     acoes += `<button class="btn" data-act="validar">Validar conclusão</button>
       <button class="btn perigo" data-act="reprovar">Reprovar (refazer)</button>`;
   }
-  if ((souExec || isCmd()) && !final) {
-    acoes += `<label class="btn sec arquivo">Adicionar foto<input type="file" accept="image/*" id="addFoto" hidden></label>`;
-  }
   if (isCmd() && !final) {
     acoes += `<div class="box"><h3>Ajustes do comandante</h3><div class="dupla">
       <label>Prioridade<select id="cmdPrio">${opts(PRIORIDADES, m.prioridade)}</select></label>
@@ -579,8 +576,8 @@ function viewAdmin() {
       <tr><th>Nome / e-mail</th><th>Perfil</th><th>Ativo</th><th></th></tr>
       ${S.membros.map((m) => `<tr>
         <td>${esc(m.nome)}<br><small>${esc(m.id)}</small></td>
-        <td><select data-perfil="${esc(m.id)}">${opts([["cadete", "Cadete"], ["comandante", "Comandante"]], m.perfil)}</select></td>
-        <td><input type="checkbox" data-ativo="${esc(m.id)}" ${m.ativo !== false ? "checked" : ""}></td>
+        <td><select data-perfil="${esc(m.id)}" ${m.id === S.me.id ? 'disabled title="Você não pode alterar o próprio perfil"' : ""}>${opts([["cadete", "Cadete"], ["comandante", "Comandante"]], m.perfil)}</select></td>
+        <td><input type="checkbox" data-ativo="${esc(m.id)}" ${m.ativo !== false ? "checked" : ""} ${m.id === S.me.id ? "disabled" : ""}></td>
         <td>${m.id !== S.me.id ? `<button class="mini perigo" data-act="delMembro" data-id="${esc(m.id)}">✕</button>` : ""}</td></tr>`).join("")}
     </table>
     <form id="fMembro" class="box"><h3>Incluir integrante</h3>
@@ -715,6 +712,20 @@ async function exportar(tipo) {
   X.writeFile(wb, nome);
 }
 
+// Impede alterar o próprio cadastro e deixar a missão sem comandante ativo.
+function protegeComandante(email, vaiPerderComando) {
+  if (!vaiPerderComando) return true;
+  if (email === S.me.id) { toast("Você não pode remover o seu próprio acesso de comandante.", true); return false; }
+  const alvo = S.membros.find((m) => m.id === email);
+  if (alvo?.perfil !== "comandante") return true;
+  const cmdsAtivos = S.membros.filter((m) => m.perfil === "comandante" && m.ativo !== false);
+  if (alvo?.perfil === "comandante" && alvo.ativo !== false && cmdsAtivos.length <= 1) {
+    toast("A missão precisa de pelo menos um comandante ativo.", true);
+    return false;
+  }
+  return confirm(`Confirma tirar o acesso de comandante de ${alvo?.nome || email}?`);
+}
+
 // ---------------------------------------------------------------------
 // Ações (botões com data-act)
 // ---------------------------------------------------------------------
@@ -776,7 +787,7 @@ const ACOES = {
     }, "Entrada registrada");
   },
   delMat: (b) => confirm("Excluir este material?") && acao(() => deleteDoc(doc(db, "materiais", b.dataset.id)), "Material excluído"),
-  delMembro: (b) => confirm(`Remover ${b.dataset.id} da missão?`) && acao(() => deleteDoc(doc(db, "membros", b.dataset.id)), "Integrante removido"),
+  delMembro: (b) => protegeComandante(b.dataset.id, true) && confirm(`Remover ${b.dataset.id} da missão?`) && acao(() => deleteDoc(doc(db, "membros", b.dataset.id)), "Integrante removido"),
   delLocal: (b) => acao(() => deleteDoc(doc(db, "locais", b.dataset.id)), "Local removido"),
   modelo: (b) => baixarModelo(b.dataset.tipo),
   exportar: (b) => exportar(b.dataset.tipo),
@@ -835,15 +846,12 @@ $app.addEventListener("change", async (e) => {
     S.rel = { de: document.getElementById("relDe").value || CICLO_INICIO, ate: document.getElementById("relAte").value || hojeISO(), cadete: document.getElementById("relCadete").value };
     route();
   } else if (t.dataset.import) await lerPlanilha(t);
-  else if (t.dataset.perfil) acao(() => updateDoc(doc(db, "membros", t.dataset.perfil), { perfil: t.value }), "Perfil alterado");
-  else if (t.dataset.ativo) acao(() => updateDoc(doc(db, "membros", t.dataset.ativo), { ativo: t.checked }), t.checked ? "Integrante reativado" : "Integrante desativado");
-  else if (t.id === "addFoto" && t.files[0]) {
-    const id = S.cur;
-    await acao(async () => {
-      await addDoc(collection(db, "fotos"), { missaoId: id, tipo: "execução", img: await comprimir(t.files[0]), por: S.me.id, em: Date.now() });
-      delete S.fotos[id];
-      carregarFotos(id);
-    }, "Foto adicionada");
+  else if (t.dataset.perfil) {
+    if (!protegeComandante(t.dataset.perfil, t.value !== "comandante")) { t.value = "comandante"; return; }
+    acao(() => updateDoc(doc(db, "membros", t.dataset.perfil), { perfil: t.value }), "Perfil alterado");
+  } else if (t.dataset.ativo) {
+    if (!protegeComandante(t.dataset.ativo, !t.checked)) { t.checked = true; return; }
+    acao(() => updateDoc(doc(db, "membros", t.dataset.ativo), { ativo: t.checked }), t.checked ? "Integrante reativado" : "Integrante desativado");
   }
 });
 
