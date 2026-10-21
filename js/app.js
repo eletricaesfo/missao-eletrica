@@ -35,7 +35,7 @@ const db = initializeFirestore(fb, { localCache: persistentLocalCache() });
 // Estado global do app
 const S = {
   me: null,            // membro logado {id: email, nome, perfil, ...}
-  membros: [], missoes: [], materiais: [], locais: [],
+  membros: [], missoes: [], materiais: [], locais: [], compras: [],
   unsub: [], loaded: new Set(),
   dirty: false,        // há formulário sendo preenchido (não redesenhar a tela)
   cur: null,           // id da missão aberta
@@ -170,7 +170,7 @@ function startListeners() {
         S.me = me;
       }
       S.loaded.add(nome);
-      if (S.loaded.size >= 4 && !S.dirty) route();
+      if (S.loaded.size >= 5 && !S.dirty) route();
     }, (err) => {
       console.error(err);
       toast(`Erro ao carregar ${nome}: ${err.code}`, true);
@@ -181,6 +181,7 @@ function startListeners() {
   L("missoes", (a, b) => (b.criadaEm || 0) - (a.criadaEm || 0));
   L("materiais", porNome);
   L("locais", porNome);
+  L("compras", (a, b) => (b.em || 0) - (a.em || 0));
 }
 
 function renderLogin() {
@@ -530,40 +531,39 @@ function inferirCategoria(nome) {
   return c ? c[0] : "Outros";
 }
 const catDe = (m) => (NOMES_CATS.includes(m.categoria) ? m.categoria : inferirCategoria(m.nome));
-const baixo = (m) => Number(m.qtd) < Number(m.min || 0);
 
 function itemMaterial(m) {
   const aberto = S.matSel === m.id;
-  return `<div class="mat-item ${baixo(m) ? "baixo" : ""} ${aberto ? "aberto" : ""}" data-busca="${esc(semAcento(m.nome))}">
+  return `<div class="mat-item ${aberto ? "aberto" : ""}" data-busca="${esc(semAcento(m.nome))}">
     <button class="mat-linha" data-act="matItem" data-id="${esc(m.id)}">
       <span class="mat-nome">${esc(m.nome)}</span>
-      <span class="mat-qtd">${baixo(m) ? ic("alerta", "mini-ic") : ""} ${m.qtd} ${esc(m.unidade)}</span>
+      <span class="mat-qtd">${m.qtd} ${esc(m.unidade)}</span>
     </button>
     ${aberto ? `<div class="mat-det">
       <div class="mat-info">
         <div><small>Em estoque</small><b>${m.qtd} ${esc(m.unidade)}</b></div>
-        <div><small>Mínimo</small><b>${m.min || 0} ${esc(m.unidade)}</b></div>
         <div><small>Categoria</small><b>${esc(catDe(m))}</b></div>
       </div>
-      ${baixo(m) ? `<p class="dica">${ic("alerta", "mini-ic")} Abaixo do mínimo: faltam ${Number(m.min) - Number(m.qtd)} ${esc(m.unidade)}.</p>` : ""}
       ${isCmd() ? `<div class="linha">
         <button class="btn" data-act="entrada" data-id="${esc(m.id)}">${ic("entrada")} Entrada</button>
         <button class="btn sec" data-act="ajustarMat" data-id="${esc(m.id)}">${ic("salvar")} Ajustar</button>
         <button class="btn perigo" data-act="delMat" data-id="${esc(m.id)}">${ic("excluir")} Excluir</button>
       </div>` : ""}
+      <button class="btn sec" data-act="comprarMat" data-id="${esc(m.id)}">${ic("entrada")} Pôr na lista de compras</button>
     </div>` : ""}
   </div>`;
 }
 
 function viewMateriais() {
   S.matAbertos ||= new Set();
-  const faltando = S.materiais.filter(baixo);
   const grupos = NOMES_CATS.map((nome) => ({
     nome, icone: CATS_MAT.find(([n]) => n === nome)[1],
     itens: S.materiais.filter((m) => catDe(m) === nome),
   })).filter((g) => g.itens.length);
   const painel = S.matPainel;
+  if (S.matAba === "compras") return viewCompras();
   shell("Materiais", `
+    ${abasMateriais("estoque")}
     <div class="mat-acoes">
       ${isCmd() ? `<button class="btn ${painel === "novo" ? "" : "sec"}" data-act="matPainel" data-p="novo">${ic("nova")} Novo material</button>
       <button class="btn ${painel === "importar" ? "" : "sec"}" data-act="matPainel" data-p="importar">${ic("importar")} Importar</button>` : ""}
@@ -576,23 +576,18 @@ function viewMateriais() {
       <div class="dupla">
         <label>Unidade<input name="unidade" value="un"></label>
         <label>Quantidade<input name="qtd" type="number" min="0" step="any" value="0"></label>
-        <label>Mínimo<input name="min" type="number" min="0" step="any" value="0"></label>
       </div>
       <button class="btn">${ic("salvar")} Salvar material</button>
       <button type="button" class="btn sec" data-act="matPainel" data-p="">Cancelar</button>
     </form>` : ""}
     ${painel === "importar" && isCmd() ? painelImport("materiais") : ""}
-    ${faltando.length ? `<details class="aviso compras"><summary>${ic("alerta")} <b>${faltando.length} item(ns) abaixo do mínimo</b> · ver lista de compras</summary>
-      <ul>${faltando.map((m) => `<li>${esc(m.nome)}: tem ${m.qtd} ${esc(m.unidade)}, mínimo ${m.min}</li>`).join("")}</ul></details>` : ""}
     ${S.materiais.length ? `
     <div class="busca">${ic("relatorios", "mini-ic")}<input id="matBusca" type="search" placeholder="Buscar material (ex.: disjuntor)" autocomplete="off"></div>
     <div id="matGrupos">
     ${grupos.map((g) => {
-      const nBaixo = g.itens.filter(baixo).length;
       return `<details class="grupo" data-grupo="${esc(g.nome)}" ${S.matAbertos.has(g.nome) ? "open" : ""}>
         <summary><span class="tipo-ic">${ic(g.icone)}</span>
           <span class="grupo-nome">${esc(g.nome)}<small>${g.itens.length} ${g.itens.length === 1 ? "item" : "itens"}</small></span>
-          ${nBaixo ? `<span class="badge parada">${nBaixo} abaixo</span>` : ""}
           <span class="seta">›</span></summary>
         <div class="grupo-itens">${g.itens.map(itemMaterial).join("")}</div>
       </details>`;
@@ -605,6 +600,48 @@ function viewMateriais() {
     if (document.getElementById("matBusca")?.value) return;
     d.open ? S.matAbertos.add(d.dataset.grupo) : S.matAbertos.delete(d.dataset.grupo);
   }));
+}
+
+function abasMateriais(ativa) {
+  const pend = S.compras.filter((c) => c.status !== "comprado").length;
+  return `<div class="abas abas-mat">
+    <button data-act="matAba" data-aba="estoque" class="${ativa === "estoque" ? "on" : ""}">${ic("materiais", "mini-ic")} Estoque <small>${S.materiais.length}</small></button>
+    <button data-act="matAba" data-aba="compras" class="${ativa === "compras" ? "on" : ""}">${ic("relatorios", "mini-ic")} Lista de compras <small>${pend}</small></button>
+  </div>`;
+}
+
+// Lista de compras: qualquer integrante pede; responsáveis marcam como comprado
+function viewCompras() {
+  const pend = S.compras.filter((c) => c.status !== "comprado");
+  const feitos = S.compras.filter((c) => c.status === "comprado").sort((a, b) => (b.compradoEm || 0) - (a.compradoEm || 0));
+  const linha = (c) => `<div class="compra ${c.status === "comprado" ? "ok" : ""}">
+    <div class="compra-txt"><b>${esc(c.qtd)} ${esc(c.unidade)} · ${esc(c.item)}</b>
+      <small>${c.obs ? esc(c.obs) + " · " : ""}pedido por ${esc(nomeDe(c.criadoPor))} em ${fmtData(c.em)}${c.status === "comprado" ? ` · comprado em ${fmtData(c.compradoEm)}` : ""}</small></div>
+    ${c.status !== "comprado" ? `<div class="compra-bt">
+      ${isCmd() ? `<button class="mini" data-act="comprado" data-id="${esc(c.id)}" title="Marcar como comprado">${ic("concluir", "mini-ic")} Comprado</button>` : ""}
+      ${isCmd() || c.criadoPor === S.me.id ? `<button class="mini perigo" data-act="delCompra" data-id="${esc(c.id)}" title="Remover">${ic("excluir", "mini-ic")}</button>` : ""}
+    </div>` : ""}
+  </div>`;
+  shell("Materiais", `
+    ${abasMateriais("compras")}
+    <form id="fCompra" class="box">
+      <h3>${ic("nova", "mini-ic")} Adicionar à lista de compras</h3>
+      <label>Material*<input name="item" required list="listaMat" placeholder="Escolha da lista ou digite um novo"
+        value="${esc(S.compraPre?.nome || "")}">
+        <datalist id="listaMat">${S.materiais.map((m) => `<option value="${esc(m.nome)}">`).join("")}</datalist></label>
+      <div class="dupla">
+        <label>Quantidade*<input name="qtd" type="number" min="0" step="any" required inputmode="decimal"></label>
+        <label>Unidade<input name="unidade" value="${esc(S.compraPre?.unidade || "un")}"></label>
+      </div>
+      <label>Observação<input name="obs" placeholder="Ex.: para a missão do Bloco B, marca, modelo"></label>
+      <button class="btn">${ic("salvar")} Adicionar</button>
+    </form>
+    <h3>${ic("relatorios", "mini-ic")} A comprar (${pend.length})</h3>
+    ${pend.length ? pend.map(linha).join("") : '<p class="vazio">Nada pendente na lista de compras.</p>'}
+    ${pend.length ? `<button class="btn sec" data-act="exportar" data-tipo="compras">${ic("exportar")} Exportar lista</button>` : ""}
+    ${feitos.length ? `<details class="grupo hist-compras"><summary><span class="grupo-nome">Já comprados<small>${feitos.length} itens</small></span><span class="seta">›</span></summary>
+      <div class="grupo-itens">${feitos.slice(0, 50).map(linha).join("")}</div></details>` : ""}
+  `, "mais");
 }
 
 function filtrarMateriais(texto) {
@@ -699,17 +736,16 @@ function viewAdmin() {
 // ---------------------------------------------------------------------
 const MODELOS = {
   materiais: {
-    titulo: "materiais", cab: ["Nome", "Unidade", "Quantidade", "Minimo", "Categoria"],
+    titulo: "materiais", cab: ["Nome", "Unidade", "Quantidade", "Categoria"],
     conv: (r) => {
       const nome = String(r.nome ?? "").trim();
       if (!nome) return { erro: "sem nome" };
       const qtd = Number(String(r.quantidade ?? 0).replace(",", "."));
-      const min = Number(String(r.minimo ?? 0).replace(",", "."));
       if (!(qtd >= 0)) return { erro: `quantidade inválida (${r.quantidade})` };
       const unidade = String(r.unidade || "un").trim();
       const cInf = String(r.categoria ?? "").trim();
       const categoria = NOMES_CATS.find((c) => semAcento(c) === semAcento(cInf)) || inferirCategoria(nome);
-      return { id: slug(nome), dados: { nome, unidade, qtd, min: min >= 0 ? min : 0, categoria, atualizadoEm: Date.now() }, prev: [nome, unidade, qtd, min || 0, categoria] };
+      return { id: slug(nome), dados: { nome, unidade, qtd, categoria, atualizadoEm: Date.now() }, prev: [nome, unidade, qtd, categoria] };
     },
   },
   membros: {
@@ -788,8 +824,13 @@ async function baixarModelo(tipo) {
 async function exportar(tipo) {
   const X = await xlsx();
   let linhas, nome;
-  if (tipo === "materiais") {
-    linhas = S.materiais.map((m) => ({ Nome: m.nome, Unidade: m.unidade, Quantidade: m.qtd, Minimo: m.min || 0, Categoria: catDe(m) }));
+  if (tipo === "compras") {
+    linhas = S.compras.filter((c) => c.status !== "comprado").map((c) => ({
+      Material: c.item, Quantidade: c.qtd, Unidade: c.unidade, Observação: c.obs || "", "Pedido por": nomeDe(c.criadoPor), Data: fmtData(c.em),
+    }));
+    nome = `lista-de-compras-${hojeISO()}.xlsx`;
+  } else if (tipo === "materiais") {
+    linhas = S.materiais.map((m) => ({ Nome: m.nome, Unidade: m.unidade, Quantidade: m.qtd, Categoria: catDe(m) }));
     nome = `materiais-${hojeISO()}.xlsx`;
   } else {
     const { de, ate, cadete } = S.rel;
@@ -886,6 +927,23 @@ const ACOES = {
     }, "Entrada registrada");
   },
   matItem: (b) => { S.matSel = S.matSel === b.dataset.id ? null : b.dataset.id; const busca = document.getElementById("matBusca")?.value || ""; route(); if (busca) { document.getElementById("matBusca").value = busca; filtrarMateriais(busca); } },
+  matAba: (b) => { S.matAba = b.dataset.aba; S.matPainel = null; S.dirty = false; route(); },
+  comprarMat: (b) => { const m = S.materiais.find((x) => x.id === b.dataset.id); S.compraPre = m ? { nome: m.nome, unidade: m.unidade } : null; S.matAba = "compras"; route(); window.scrollTo(0, 0); },
+  comprado: (b) => {
+    const c = S.compras.find((x) => x.id === b.dataset.id);
+    const mat = S.materiais.find((m) => semAcento(m.nome) === semAcento(c.item));
+    const somar = mat && confirm(`Marcar "${c.item}" como comprado.\n\nSomar ${c.qtd} ${c.unidade} ao estoque agora?`);
+    return acao(async () => {
+      const batch = writeBatch(db);
+      batch.update(doc(db, "compras", c.id), { status: "comprado", compradoEm: Date.now(), compradoPor: S.me.id });
+      if (somar) {
+        batch.update(doc(db, "materiais", mat.id), { qtd: increment(Number(c.qtd) || 0), atualizadoEm: Date.now() });
+        batch.set(doc(collection(db, "movimentacoes")), { materialId: mat.id, tipo: "entrada", qtd: Number(c.qtd) || 0, compraId: c.id, por: S.me.id, em: Date.now() });
+      }
+      await batch.commit();
+    }, somar ? "Comprado e somado ao estoque" : "Marcado como comprado");
+  },
+  delCompra: (b) => confirm("Remover este item da lista de compras?") && acao(() => deleteDoc(doc(db, "compras", b.dataset.id)), "Item removido"),
   matPainel: (b) => { S.matPainel = S.matPainel === b.dataset.p ? null : (b.dataset.p || null); S.dirty = false; route(); },
   ajustarMat: (b) => {
     const m = S.materiais.find((x) => x.id === b.dataset.id);
@@ -925,11 +983,20 @@ const FORMS = {
   fConcluir: concluir,
   fIndisp: (f) => acao(() => updateDoc(doc(db, "membros", S.me.id), { indisponivelAte: f.ate.value || null }),
     f.ate.value ? "Indisponibilidade registrada" : "Indisponibilidade removida").then(() => { S.dirty = false; }),
+  fCompra: (f) => {
+    const d = Object.fromEntries(new FormData(f));
+    const q = Number(String(d.qtd).replace(",", "."));
+    if (!(q > 0)) return toast("Informe a quantidade", true);
+    return acao(() => addDoc(collection(db, "compras"), {
+      item: d.item.trim(), qtd: q, unidade: (d.unidade || "un").trim(), obs: (d.obs || "").trim(),
+      status: "pendente", criadoPor: S.me.id, em: Date.now(),
+    }), "Adicionado à lista de compras").then((ok) => { if (ok) { S.compraPre = null; S.dirty = false; route(); } });
+  },
   fMaterial: (f) => {
     const d = Object.fromEntries(new FormData(f));
     const nome = d.nome.trim();
     return acao(() => setDoc(doc(db, "materiais", slug(nome)), {
-      nome, unidade: d.unidade.trim() || "un", qtd: Number(d.qtd) || 0, min: Number(d.min) || 0,
+      nome, unidade: d.unidade.trim() || "un", qtd: Number(d.qtd) || 0,
       categoria: d.categoria || inferirCategoria(nome), atualizadoEm: Date.now(),
     }, { merge: true }), "Material salvo").then((ok) => { if (ok) { S.dirty = false; S.matPainel = null; route(); } });
   },
