@@ -76,6 +76,17 @@ service cloud.firestore {
       allow create: if membro() && request.resource.data.por == email();
     }
 
+    // Lista de compras: qualquer integrante pede; responsáveis marcam como comprado.
+    match /compras/{id} {
+      allow read: if membro();
+      allow create: if membro()
+        && request.resource.data.criadoPor == email()
+        && request.resource.data.status == 'pendente';
+      allow update: if comandante();
+      allow delete: if comandante()
+        || (membro() && resource.data.criadoPor == email() && resource.data.status == 'pendente');
+    }
+
     match /locais/{id} {
       allow read: if membro();
       allow write: if comandante();
