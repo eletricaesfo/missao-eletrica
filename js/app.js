@@ -199,7 +199,7 @@ function renderSemAcesso(email) {
   $app.innerHTML = `<div class="centro">
     <h1>Acesso não liberado</h1>
     <p>A conta <b>${esc(email)}</b> não está na lista de integrantes da missão elétrica.</p>
-    <p>Peça a um dos comandantes da missão para cadastrar este e-mail.</p>
+    <p>Peça a um dos responsáveis da missão para cadastrar este e-mail.</p>
     <button class="btn sec" data-act="sair">Sair</button>
   </div>`;
 }
@@ -234,7 +234,7 @@ function shell(titulo, corpo, ativo) {
       <div class="titulo"><small>Missão Elétrica · EsFO</small><h1>${esc(titulo)}</h1></div>
       <img class="brasao" src="icons/esfo.png" alt="EsFO">
     </header>
-    <div class="faixa"><span>${ic("usuario")} ${esc(S.me.nome || S.me.id)}</span>${isCmd() ? '<b class="tag">COMANDANTE</b>' : ""}</div>
+    <div class="faixa"><span>${ic("usuario")} ${esc(S.me.nome || S.me.id)}</span>${isCmd() ? '<b class="tag">RESPONSÁVEL</b>' : ""}</div>
     <main>${corpo}</main>
     <nav class="menu">${itens.map(([k, l, i]) => `<a href="#/${k}" class="${ativo === k ? "on" : ""}">${ic(i)}<span>${l}</span></a>`).join("")}</nav>`;
 }
@@ -363,7 +363,7 @@ function viewMissao(id) {
       <button class="btn perigo" data-act="reprovar">${ic("reprovar")} Reprovar (refazer)</button>`;
   }
   if (isCmd() && !final) {
-    acoes += `<div class="box"><h3>Ajustes do comandante</h3><div class="dupla">
+    acoes += `<div class="box"><h3>Ajustes do responsável</h3><div class="dupla">
       <label>Prioridade<select id="cmdPrio">${opts(PRIORIDADES, m.prioridade)}</select></label>
       <label>Peso<select id="cmdPeso">${opts(PESOS, m.peso || 1)}</select></label></div>
       <button class="btn sec" data-act="ajustar">${ic("salvar")} Salvar ajustes</button></div>`;
@@ -488,7 +488,7 @@ function viewEfetivo() {
       <tr><th>#</th><th>Cadete</th><th>Pts</th><th>Concl.</th><th>And.</th><th>Última</th></tr>
       ${ef.map((m, i) => `<tr class="${m.indisp ? "indisp" : ""}">
         <td>${m.indisp ? "—" : i + 1}</td>
-        <td>${esc(m.nome)}${m.perfil === "comandante" ? ' <b class="tag">CMT</b>' : ""}${m.indisp ? `<br><small>indisponível até ${fmtData(Date.parse(m.indisponivelAte + "T12:00:00"))}</small>` : ""}</td>
+        <td>${esc(m.nome)}${m.perfil === "comandante" ? ' <b class="tag">RESP</b>' : ""}${m.indisp ? `<br><small>indisponível até ${fmtData(Date.parse(m.indisponivelAte + "T12:00:00"))}</small>` : ""}</td>
         <td><b>${m.pontos}</b></td><td>${m.concluidas}</td><td>${m.andamento}</td><td>${fmtData(m.ultima)}</td></tr>`).join("")}
     </table>`, "efetivo");
 }
@@ -498,7 +498,7 @@ function viewMais() {
     <div class="lista-links">
       <a href="#/materiais">${ic("materiais")}<span>Materiais e estoque<small>Estoque, entradas e lista de compras</small></span></a>
       <a href="#/relatorios">${ic("relatorios")}<span>Relatórios<small>Missões concluídas em PDF ou planilha</small></span></a>
-      ${isCmd() ? `<a href="#/admin">${ic("admin")}<span>Administração<small>Integrantes, comandantes e locais</small></span></a>` : ""}
+      ${isCmd() ? `<a href="#/admin">${ic("admin")}<span>Administração<small>Integrantes, responsáveis e locais</small></span></a>` : ""}
       <button class="link" data-act="sair">${ic("sair")}<span>Sair<small>${esc(S.me.id)}</small></span></button>
     </div>
     <p class="dica">Para instalar no celular: no Chrome (Android), menu ⋮ › "Instalar app"; no Safari (iPhone), Compartilhar › "Adicionar à Tela de Início".</p>
@@ -583,14 +583,14 @@ function viewAdmin() {
       <tr><th>Nome / e-mail</th><th>Perfil</th><th>Ativo</th><th></th></tr>
       ${S.membros.map((m) => `<tr>
         <td>${esc(m.nome)}<br><small>${esc(m.id)}</small></td>
-        <td><select data-perfil="${esc(m.id)}" ${m.id === S.me.id ? 'disabled title="Você não pode alterar o próprio perfil"' : ""}>${opts([["cadete", "Cadete"], ["comandante", "Comandante"]], m.perfil)}</select></td>
+        <td><select data-perfil="${esc(m.id)}" ${m.id === S.me.id ? 'disabled title="Você não pode alterar o próprio perfil"' : ""}>${opts([["cadete", "Cadete"], ["comandante", "Responsável"]], m.perfil)}</select></td>
         <td><input type="checkbox" data-ativo="${esc(m.id)}" ${m.ativo !== false ? "checked" : ""} ${m.id === S.me.id ? "disabled" : ""}></td>
         <td>${m.id !== S.me.id ? `<button class="mini perigo" data-act="delMembro" data-id="${esc(m.id)}" title="Remover">${ic("excluir", "mini-ic")}</button>` : ""}</td></tr>`).join("")}
     </table>
     <form id="fMembro" class="box"><h3>Incluir integrante</h3>
       <label>E-mail Google*<input name="email" type="email" required placeholder="nome@gmail.com"></label>
       <label>Nome de guerra*<input name="nome" required placeholder="Cad. Fulano"></label>
-      <label>Perfil<select name="perfil">${opts([["cadete", "Cadete"], ["comandante", "Comandante"]])}</select></label>
+      <label>Perfil<select name="perfil">${opts([["cadete", "Cadete"], ["comandante", "Responsável"]])}</select></label>
       <button class="btn">${ic("designar")} Incluir</button>
     </form>
     ${painelImport("membros")}
@@ -625,7 +625,7 @@ const MODELOS = {
     conv: (r) => {
       const email = String(r.email ?? "").trim().toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(email)) return { erro: `e-mail inválido (${r.email})` };
-      const perfil = /coman|cmt/i.test(String(r.perfil ?? "")) ? "comandante" : "cadete";
+      const perfil = /respons|coman|cmt/i.test(String(r.perfil ?? "")) ? "comandante" : "cadete";
       const nome = String(r.nome || email).trim();
       return { id: email, dados: { nome, perfil, ativo: true }, prev: [email, nome, perfil] };
     },
@@ -722,15 +722,15 @@ async function exportar(tipo) {
 // Impede alterar o próprio cadastro e deixar a missão sem comandante ativo.
 function protegeComandante(email, vaiPerderComando) {
   if (!vaiPerderComando) return true;
-  if (email === S.me.id) { toast("Você não pode remover o seu próprio acesso de comandante.", true); return false; }
+  if (email === S.me.id) { toast("Você não pode remover o seu próprio acesso de responsável.", true); return false; }
   const alvo = S.membros.find((m) => m.id === email);
   if (alvo?.perfil !== "comandante") return true;
   const cmdsAtivos = S.membros.filter((m) => m.perfil === "comandante" && m.ativo !== false);
   if (alvo?.perfil === "comandante" && alvo.ativo !== false && cmdsAtivos.length <= 1) {
-    toast("A missão precisa de pelo menos um comandante ativo.", true);
+    toast("A missão precisa de pelo menos um responsável ativo.", true);
     return false;
   }
-  return confirm(`Confirma tirar o acesso de comandante de ${alvo?.nome || email}?`);
+  return confirm(`Confirma tirar o acesso de responsável de ${alvo?.nome || email}?`);
 }
 
 // ---------------------------------------------------------------------
