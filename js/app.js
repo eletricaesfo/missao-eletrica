@@ -780,6 +780,9 @@ function viewCompras() {
       <label>Observação<input name="obs" placeholder="Ex.: para a missão do Bloco B, marca, modelo"></label>
       <button class="btn">${ic("salvar")} Adicionar</button>
     </form>
+    ${isCmd() ? `<details class="grupo imp-compras" ${S.importPend?.tipo === "compras" ? "open" : ""}><summary><span class="tipo-ic">${ic("importar")}</span>
+      <span class="grupo-nome">Importar lista de planilha<small>Excel ou CSV com vários itens de uma vez</small></span><span class="seta">›</span></summary>
+      ${painelImport("compras")}</details>` : ""}
     <h3>${ic("relatorios", "mini-ic")} A comprar (${pend.length})</h3>
     ${pend.length ? pend.map(linha).join("") : '<p class="vazio">Nada pendente na lista de compras.</p>'}
     ${pend.length ? `<div class="linha">
@@ -1205,6 +1208,20 @@ const MODELOS = {
       return { id: email, dados: { nome, perfil, ativo: true }, prev: [email, nome, perfil] };
     },
   },
+  // Lista de compras: cada linha vira um pedido pendente, em nome de quem importou.
+  compras: {
+    titulo: "lista de compras", cab: ["Material", "Quantidade", "Unidade", "Observação"],
+    conv: (r) => {
+      const item = String(r.material ?? "").trim();
+      if (!item) return { erro: "sem material" };
+      const qtd = Number(String(r.quantidade ?? "").replace(",", "."));
+      if (!(qtd > 0)) return { erro: `quantidade inválida (${r.quantidade})` };
+      const unidade = String(r.unidade || "un").trim();
+      const obs = String(r.observacao ?? "").trim();
+      if (S.compras.some((c) => c.status !== "comprado" && semAcento(c.item) === semAcento(item))) return { erro: `"${item}" já está na lista (pendente)` };
+      return { id: null, dados: { item, qtd, unidade, obs, status: "pendente", criadoPor: S.me.id, em: Date.now() }, prev: [item, qtd, unidade, obs] };
+    },
+  },
   locais: {
     titulo: "locais", cab: ["Nome"],
     conv: (r) => {
@@ -1218,7 +1235,9 @@ const MODELOS = {
 function painelImport(tipo) {
   const M = MODELOS[tipo];
   return `<div class="box"><h3>Importar ${M.titulo} de planilha</h3>
-    <p class="dica">Colunas: ${M.cab.join(", ")}. Itens já cadastrados são atualizados, sem duplicar.${tipo === "materiais" ? " A quantidade da planilha substitui o estoque atual." : ""}</p>
+    <p class="dica">Colunas: ${M.cab.join(", ")}. ${tipo === "compras"
+      ? "Cada linha entra como pedido pendente; itens que já estão pendentes na lista são ignorados."
+      : "Itens já cadastrados são atualizados, sem duplicar."}${tipo === "materiais" ? " A quantidade da planilha substitui o estoque atual." : ""}</p>
     <div class="linha">
       <button class="btn sec" data-act="modelo" data-tipo="${tipo}">${ic("exportar")} Baixar modelo</button>
       <label class="btn sec arquivo">${ic("importar")} Escolher planilha<input type="file" accept=".xlsx,.xls,.csv" data-import="${tipo}" hidden></label>
@@ -1254,7 +1273,8 @@ async function confirmarImport() {
   const sucesso = await acao(async () => {
     for (let i = 0; i < ok.length; i += 400) {
       const b = writeBatch(db);
-      ok.slice(i, i + 400).forEach((r) => b.set(doc(db, tipo, r.id), r.dados, { merge: true }));
+      // Sem id (lista de compras): cada linha vira um documento novo.
+      ok.slice(i, i + 400).forEach((r) => b.set(r.id ? doc(db, tipo, r.id) : doc(collection(db, tipo)), r.dados, { merge: true }));
       await b.commit();
     }
   }, `${ok.length} registro(s) importado(s)`);
