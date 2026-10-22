@@ -1537,4 +1537,14 @@ $app.addEventListener("change", async (e) => {
 });
 
 // Service worker (permite instalar como app no celular)
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
+// updateViaCache "none": o celular sempre confere se há um sw.js novo, sem usar cópia guardada.
+if ("serviceWorker" in navigator) {
+  const tinhaVersao = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch(() => {});
+  // Quando uma versão nova do app assume, recarrega a tela (se ninguém estiver preenchendo um formulário).
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!tinhaVersao) return;
+    if (!S.dirty) location.reload();
+    else toast("Há uma versão nova do app. Ela entra quando você recarregar a página.");
+  });
+}
