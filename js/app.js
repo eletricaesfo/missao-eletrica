@@ -619,16 +619,22 @@ function viewMinhas() {
 }
 
 function viewEfetivo() {
-  const ef = efetivo();
+  // O rodízio é um só (responsáveis também entram na vez); a tabela só é dividida para leitura.
+  // O "#" é a posição de cada um no rodízio geral.
+  const ef = efetivo().map((m, i) => ({ ...m, pos: m.indisp ? null : i + 1 }));
+  const resp = ef.filter((m) => m.perfil === "comandante");
+  const cads = ef.filter((m) => m.perfil !== "comandante");
+  const cab = (titulo) => `<tr><th>#</th><th>${titulo}</th><th>Pts</th><th>Concl.</th><th>S/E</th><th>And.</th><th>Última</th></tr>`;
+  const linha = (m) => `<tr class="${m.indisp ? "indisp" : ""}">
+    <td>${m.pos ?? "—"}</td>
+    <td>${esc(m.nome)}${m.indisp ? `<br><small>indisponível até ${fmtData(Date.parse(m.indisponivelAte + "T12:00:00"))}</small>` : ""}</td>
+    <td><b>${m.pontos}</b></td><td>${m.concluidas}</td><td>${m.semExec}</td><td>${m.andamento}</td><td>${fmtData(m.ultima)}</td></tr>`;
   shell("Efetivo", `
-    <p class="dica">Ciclo desde ${fmtData(Date.parse(CICLO_INICIO + "T00:00:00"))}. A vez é de quem tem menos pontos; em empate, de quem tem menos missões em andamento. S/E = encerradas sem execução (não contam pontos).</p>
-    <table class="tab">
-      <tr><th>#</th><th>Cadete</th><th>Pts</th><th>Concl.</th><th>S/E</th><th>And.</th><th>Última</th></tr>
-      ${ef.map((m, i) => `<tr class="${m.indisp ? "indisp" : ""}">
-        <td>${m.indisp ? "—" : i + 1}</td>
-        <td>${esc(m.nome)}${m.perfil === "comandante" ? ' <b class="tag">RESP</b>' : ""}${m.indisp ? `<br><small>indisponível até ${fmtData(Date.parse(m.indisponivelAte + "T12:00:00"))}</small>` : ""}</td>
-        <td><b>${m.pontos}</b></td><td>${m.concluidas}</td><td>${m.semExec}</td><td>${m.andamento}</td><td>${fmtData(m.ultima)}</td></tr>`).join("")}
-    </table>`, "efetivo");
+    <p class="dica">Ciclo desde ${fmtData(Date.parse(CICLO_INICIO + "T00:00:00"))}. A vez é de quem tem menos pontos; em empate, de quem tem menos missões em andamento. O # é a posição no rodízio geral (responsáveis e cadetes juntos). S/E = encerradas sem execução (não contam pontos).</p>
+    <h3>${ic("estrela", "mini-ic")} Responsáveis (${resp.length})</h3>
+    ${resp.length ? `<table class="tab tab-resp">${cab("Responsável")}${resp.map(linha).join("")}</table>` : '<p class="vazio">Nenhum responsável ativo.</p>'}
+    <h3>${ic("efetivo", "mini-ic")} Cadetes (${cads.length})</h3>
+    ${cads.length ? `<table class="tab">${cab("Cadete")}${cads.map(linha).join("")}</table>` : '<p class="vazio">Nenhum cadete ativo.</p>'}`, "efetivo");
 }
 
 function viewMais() {
