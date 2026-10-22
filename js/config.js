@@ -55,6 +55,13 @@ export const MOTIVOS_SEM_EXEC = [
   ["ja_solucionado", "Problema já solucionado"],
 ];
 
+// Texto fixo do PDF da lista de compras (Materiais › Lista de compras › Gerar PDF).
+export const TEXTO_COMPRAS =
+  "A Missão Elétrica da Escola de Formação de Oficiais, responsável pela manutenção das instalações " +
+  "elétricas da EsFO, apresenta a relação de materiais necessários à continuidade dos serviços. " +
+  "Os itens abaixo destinam-se ao atendimento das demandas de manutenção identificadas pela missão " +
+  "e à reposição do estoque de materiais elétricos.";
+
 export const PESOS = [
   [1, "1 · Simples (ex.: trocar lâmpada)"],
   [2, "2 · Média (ex.: trocar tomada)"],

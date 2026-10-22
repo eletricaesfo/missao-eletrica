@@ -14,7 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   firebaseConfig, CICLO_INICIO, HORAS_ALERTA_PAINEL, TIPOS, PRIORIDADES, PESOS,
-  ORIGENS, MOTIVOS_SEM_EXEC,
+  ORIGENS, MOTIVOS_SEM_EXEC, TEXTO_COMPRAS,
 } from "./config.js";
 import { ic } from "./icones.js";
 
@@ -766,6 +766,7 @@ function viewCompras() {
     </div>` : ""}
   </div>`;
   shell("Materiais", `
+    <div class="no-print">
     ${abasMateriais("compras")}
     <form id="fCompra" class="box">
       <h3>${ic("nova", "mini-ic")} Adicionar à lista de compras</h3>
@@ -781,10 +782,30 @@ function viewCompras() {
     </form>
     <h3>${ic("relatorios", "mini-ic")} A comprar (${pend.length})</h3>
     ${pend.length ? pend.map(linha).join("") : '<p class="vazio">Nada pendente na lista de compras.</p>'}
-    ${pend.length ? `<button class="btn sec" data-act="exportar" data-tipo="compras">${ic("exportar")} Exportar lista</button>` : ""}
+    ${pend.length ? `<div class="linha">
+      <button class="btn" data-act="pdfCompras">${ic("imprimir")} Gerar PDF</button>
+      <button class="btn sec" data-act="exportar" data-tipo="compras">${ic("exportar")} Exportar planilha</button></div>` : ""}
     ${feitos.length ? `<details class="grupo hist-compras"><summary><span class="grupo-nome">Já comprados<small>${feitos.length} itens</small></span><span class="seta">›</span></summary>
       <div class="grupo-itens">${feitos.slice(0, 50).map(linha).join("")}</div></details>` : ""}
+    </div>
+    ${pend.length ? docCompras(pend) : ""}
   `, "mais");
+}
+
+// Documento da lista de compras: só aparece na impressão / PDF.
+function docCompras(pend) {
+  const resp = S.membros.filter((m) => m.perfil === "comandante" && m.ativo !== false);
+  return `<div class="doc-compras so-print">
+    <div class="cab-rel"><img src="icons/apmg.png" alt=""><div><b>Academia Policial Militar do Guatupê · Escola de Formação de Oficiais</b>
+      <h2>Lista de materiais para aquisição — Missão Elétrica</h2></div><img src="icons/esfo.png" alt=""></div>
+    <p class="doc-texto">${esc(TEXTO_COMPRAS)}</p>
+    <table class="tab">
+      <tr><th>Nº</th><th>Material</th><th>Qtd.</th><th>Unid.</th><th>Observação</th></tr>
+      ${pend.map((c, i) => `<tr><td>${i + 1}</td><td>${esc(c.item)}</td><td>${esc(c.qtd)}</td><td>${esc(c.unidade)}</td><td>${esc(c.obs || "")}</td></tr>`).join("")}
+    </table>
+    <p class="doc-data">Total: ${pend.length} ${pend.length === 1 ? "item" : "itens"} · Emitido em ${fmtData(Date.now())}</p>
+    ${resp.length ? `<div class="doc-assin">${resp.map((m) => `<div><span></span>${esc(m.nome)}<small>Responsável pela Missão Elétrica</small></div>`).join("")}</div>` : ""}
+  </div>`;
 }
 
 function filtrarMateriais(texto) {
@@ -1453,6 +1474,13 @@ const ACOES = {
   zerar: (b) => zerarDados(b),
   confirmarImport,
   imprimir: () => window.print(),
+  pdfCompras: () => {
+    // O título vira o nome sugerido do arquivo PDF.
+    const antes = document.title;
+    document.title = `Lista de compras - Missão Elétrica - ${hojeISO()}`;
+    window.print();
+    setTimeout(() => { document.title = antes; }, 1000);
+  },
 };
 
 $app.addEventListener("click", async (e) => {
