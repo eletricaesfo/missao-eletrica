@@ -7,7 +7,7 @@ Feito em HTML + JavaScript puro, hospedado no GitHub Pages, com dados no Firebas
 
 - Qualquer cadete da missão cadastra uma missão ao encontrar um problema elétrico (com foto).
 - Painel com as missões abertas; o cadete captura a missão e executa.
-- Os responsáveis pela missão designam um cadete apenas para missões que ninguém capturou, arquivam duplicadas e validam conclusões.
+- Os responsáveis pela missão designam um cadete (botão "Designar para…", escolha na lista e OK) apenas para missões que ninguém capturou, resgatam de volta ao painel uma missão em execução ou aguardando material (designação errada, cadete indisponível), arquivam duplicadas e validam conclusões.
 - Conclusão com fotos de depois, material usado (baixa automática do estoque), tempo e observações.
 - Rodízio por pontos (peso 1 a 3 por missão) e contador por cadete (aba Efetivo).
 - Estoque de materiais com lista de compras, importação e exportação de planilhas.
