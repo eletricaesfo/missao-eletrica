@@ -92,17 +92,25 @@ async function acao(fn, ok) {
 }
 
 // Comprime a foto no próprio celular (≈ 100–300 KB) antes de gravar.
+// Aceita foto da câmera ou da galeria; sempre grava em JPEG (converte HEIC/PNG/WebP).
 async function comprimir(file) {
   let img;
   try {
-    img = await createImageBitmap(file);
+    img = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {
-    img = await new Promise((ok, erro) => {
-      const i = new Image();
-      i.onload = () => ok(i);
-      i.onerror = erro;
-      i.src = URL.createObjectURL(file);
-    });
+    const url = URL.createObjectURL(file);
+    try {
+      img = await new Promise((ok, erro) => {
+        const i = new Image();
+        i.onload = () => ok(i);
+        i.onerror = erro;
+        i.src = url;
+      });
+    } catch {
+      throw new Error(`não foi possível abrir a foto "${file.name}". Escolha outra imagem ou tire a foto pela câmera.`);
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
   }
   const max = 1280;
   const r = Math.min(1, max / Math.max(img.width, img.height));
@@ -302,7 +310,7 @@ function viewNova() {
       <label class="check"><input type="checkbox" name="risco"> Risco à segurança (fio exposto, cheiro de queimado, choque)</label>
       <label>Descrição<textarea name="descricao" rows="3" placeholder="Detalhes que ajudem quem vai executar"></textarea></label>
       <label>Materiais necessários (se souber)<input name="materiais" placeholder="Ex.: 2 lâmpadas LED 9 W"></label>
-      <label>${ic("foto", "mini-ic")} Foto do problema<input type="file" name="foto" accept="image/*" capture="environment"></label>
+      <label>${ic("foto", "mini-ic")} Foto do problema<input type="file" name="foto" accept="image/*"></label>
       <button class="btn">${ic("nova")} Cadastrar missão</button>
     </form>`, "nova");
 }
@@ -315,6 +323,8 @@ async function salvarNova(f) {
   const btn = f.querySelector("button"); btn.disabled = true; btn.textContent = "Salvando…";
   let novoId = null;
   const ok = await acao(async () => {
+    // Prepara a foto antes de gravar: se ela não abrir, a missão não é criada pela metade.
+    const foto = d.foto && d.foto.size ? await comprimir(d.foto) : null;
     const agora = Date.now();
     const ref = await addDoc(collection(db, "missoes"), {
       titulo: d.titulo.trim(), descricao: (d.descricao || "").trim(), local, tipo: d.tipo,
@@ -324,8 +334,8 @@ async function salvarNova(f) {
       historico: [{ em: agora, por: S.me.id, acao: "Cadastrou a missão" }],
     });
     novoId = ref.id;
-    if (d.foto && d.foto.size) {
-      await addDoc(collection(db, "fotos"), { missaoId: ref.id, tipo: "antes", img: await comprimir(d.foto), por: S.me.id, em: Date.now() });
+    if (foto) {
+      await addDoc(collection(db, "fotos"), { missaoId: ref.id, tipo: "antes", img: foto, por: S.me.id, em: Date.now() });
     }
   }, "Missão cadastrada");
   btn.disabled = false; btn.innerHTML = `${ic("nova")} Cadastrar missão`;
@@ -438,8 +448,11 @@ async function concluir(f) {
   const btn = f.querySelector("button:last-of-type"); btn.disabled = true; btn.textContent = "Enviando…";
   const id = S.cur;
   const ok = await acao(async () => {
-    for (const file of files) {
-      await addDoc(collection(db, "fotos"), { missaoId: id, tipo: "depois", img: await comprimir(file), por: S.me.id, em: Date.now() });
+    // Comprime todas antes de enviar: se uma falhar, nada é gravado pela metade.
+    const imgs = [];
+    for (const file of files) imgs.push(await comprimir(file));
+    for (const img of imgs) {
+      await addDoc(collection(db, "fotos"), { missaoId: id, tipo: "depois", img, por: S.me.id, em: Date.now() });
     }
     const b = writeBatch(db);
     b.update(doc(db, "missoes", id), {
