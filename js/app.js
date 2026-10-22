@@ -763,6 +763,8 @@ function viewCompras() {
     ${c.status !== "comprado" ? `<div class="compra-bt">
       ${isCmd() ? `<button class="mini" data-act="comprado" data-id="${esc(c.id)}" title="Marcar como comprado">${ic("concluir", "mini-ic")} Comprado</button>` : ""}
       ${isCmd() || c.criadoPor === S.me.id ? `<button class="mini perigo" data-act="delCompra" data-id="${esc(c.id)}" title="Remover">${ic("excluir", "mini-ic")}</button>` : ""}
+    </div>` : isCmd() ? `<div class="compra-bt">
+      <button class="mini" data-act="desfazerCompra" data-id="${esc(c.id)}" title="Marcado como comprado por engano">${ic("retomar", "mini-ic")} Voltar para a lista</button>
     </div>` : ""}
   </div>`;
   shell("Materiais", `
@@ -1459,6 +1461,36 @@ const ACOES = {
       }
       await batch.commit();
     }, somar ? "Comprado e somado ao estoque" : "Marcado como comprado");
+  },
+  // Desfaz "Comprado" marcado por engano: o item volta a pendente e,
+  // se a compra tinha somado ao estoque, essa quantidade é retirada (com registro do estorno).
+  desfazerCompra: async (b) => {
+    const c = S.compras.find((x) => x.id === b.dataset.id);
+    if (!c) return;
+    let entradas = [];
+    try {
+      entradas = (await getDocs(query(collection(db, "movimentacoes"), where("compraId", "==", c.id))))
+        .docs.map((d) => d.data()).filter((v) => ["entrada", "estorno"].includes(v.tipo));
+    } catch (e) { console.error(e); return toast("Erro ao consultar o estoque: " + (e.code || e.message), true); }
+    const porMat = {};
+    // Saldo líquido desta compra no estoque (entradas menos estornos de desfazimentos anteriores)
+    entradas.forEach((v) => { porMat[v.materialId] = (porMat[v.materialId] || 0) + (Number(v.qtd) || 0); });
+    const estornos = Object.entries(porMat).filter(([, q]) => q > 0)
+      .map(([id, q]) => ({ id, q, mat: S.materiais.find((m) => m.id === id) }));
+    const aviso = estornos.length
+      ? `\n\nNa compra, ${estornos.map((e) => `${e.q} ${e.mat?.unidade || ""} de "${e.mat?.nome || e.id}"`).join(", ")} foram somados ao estoque e serão retirados agora.`
+        + (estornos.some((e) => e.mat && Number(e.mat.qtd) < e.q) ? "\nAtenção: o estoque atual é menor que isso e ficará negativo — confira depois." : "")
+      : "";
+    if (!confirm(`Devolver "${c.item}" (${c.qtd} ${c.unidade}) para a lista de compras?${aviso}`)) return;
+    return acao(async () => {
+      const batch = writeBatch(db);
+      batch.update(doc(db, "compras", c.id), { status: "pendente", compradoEm: null, compradoPor: null });
+      for (const e of estornos.filter((x) => x.mat)) {
+        batch.update(doc(db, "materiais", e.id), { qtd: increment(-e.q), atualizadoEm: Date.now() });
+        batch.set(doc(collection(db, "movimentacoes")), { materialId: e.id, tipo: "estorno", qtd: -e.q, compraId: c.id, por: S.me.id, em: Date.now() });
+      }
+      await batch.commit();
+    }, estornos.length ? "Item de volta à lista e estoque corrigido" : "Item de volta à lista de compras");
   },
   delCompra: (b) => confirm("Remover este item da lista de compras?") && acao(() => deleteDoc(doc(db, "compras", b.dataset.id)), "Item removido"),
   matPainel: (b) => { S.matPainel = S.matPainel === b.dataset.p ? null : (b.dataset.p || null); S.dirty = false; route(); },
