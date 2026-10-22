@@ -252,3 +252,24 @@ label.check input { width: auto; margin: 0; }
 .zerar .lista-zerar label.check input { margin-top: 3px; }
 .zerar .lista-zerar span { display: flex; flex-direction: column; }
 .zerar .lista-zerar small { color: #6b7280; }
+
+/* Janela "Designar para…" */
+.sobre { position: fixed; inset: 0; z-index: 30; background: rgba(0,26,58,.55); display: flex;
+  align-items: flex-end; justify-content: center; padding: 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+.janela { background: var(--card); width: 100%; max-width: 480px; max-height: 85vh; display: flex; flex-direction: column;
+  border-radius: 16px; border-top: 5px solid var(--ouro); padding: 14px 16px 10px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+@media (min-width: 600px) { .sobre { align-items: center; } }
+.janela h3 { margin: 0 0 2px; }
+.janela .dica { margin: 0 0 8px; }
+.cad-lista { overflow-y: auto; flex: 1; margin: 0 -4px; padding: 0 4px; }
+.cad-op { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; color: var(--texto);
+  background: #fff; border: 1.5px solid var(--borda); border-radius: 10px; padding: 10px 12px; margin: 6px 0; cursor: pointer; }
+.cad-op:disabled { opacity: .45; cursor: not-allowed; }
+.cad-op.on { border-color: var(--azul); background: #eef3fb; box-shadow: 0 0 0 2px var(--ouro); }
+.cad-radio { width: 20px; height: 20px; flex: none; border-radius: 50%; border: 2px solid var(--suave); }
+.cad-op.on .cad-radio { border-color: var(--azul); background: radial-gradient(var(--azul) 45%, #fff 50%); }
+.cad-txt { display: flex; flex-direction: column; gap: 2px; }
+.cad-txt b { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.badge.vez-b { background: var(--ouro); color: var(--azul-esc); display: inline-flex; align-items: center; gap: 3px; }
+.janela-bt { display: flex; gap: 8px; border-top: 1px solid var(--borda); padding-top: 8px; margin-top: 6px; }
+.janela-bt .btn { flex: 1; margin: 0; }
