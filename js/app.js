@@ -10,7 +10,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs,
   setDoc, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, writeBatch,
-  increment, arrayUnion, getCountFromServer, getAggregateFromServer, sum, count,
+  increment, arrayUnion, runTransaction, getCountFromServer, getAggregateFromServer, sum, count,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   firebaseConfig, CICLO_INICIO, HORAS_ALERTA_PAINEL, TIPOS, PRIORIDADES, PESOS,
@@ -42,6 +42,7 @@ const S = {
   fotos: {},           // cache de fotos por missão
   tab: "painel", filtroTipo: "",
   rel: null, importPend: null,
+  designar: null,      // janela "Designar para…" aberta: {id da missão, sel: e-mail escolhido}
 };
 
 const STATUS = {
@@ -218,7 +219,7 @@ function renderSemAcesso(email) {
 // Rotas e estrutura da tela
 // ---------------------------------------------------------------------
 window.addEventListener("hashchange", () => {
-  S.dirty = false;
+  S.dirty = false; S.designar = null;
   route();
   window.scrollTo(0, 0);
 });
@@ -356,12 +357,14 @@ function viewMissao(id) {
   if (m.status === "painel") {
     acoes += `<button class="btn" data-act="capturar">${ic("capturar")} Capturar missão</button>`;
     if (isCmd()) {
-      const ef = efetivo().filter((x) => !x.indisp);
-      acoes += `<div class="linha">
-        <select id="designarSel">${ef.map((x, i) => `<option value="${esc(x.id)}">${i === 0 ? "★ " : ""}${esc(x.nome)} — ${x.pontos} pts, ${x.andamento} em andamento</option>`).join("")}</select>
-        <button class="btn sec" data-act="designar">${ic("designar")} Designar</button></div>
+      acoes += `<button class="btn sec" data-act="abrirDesignar">${ic("designar")} Designar para…</button>
         <button class="btn perigo" data-act="arquivar">${ic("arquivar")} Arquivar (duplicada)</button>`;
     }
+  }
+  // Responsável retira a missão do executor e a devolve ao painel
+  // (designação errada, cadete indisponível, missão abandonada etc.).
+  if (isCmd() && ["em_execucao", "aguardando_material"].includes(m.status) && m.executor) {
+    acoes += `<button class="btn perigo" data-act="resgatar">${ic("reprovar")} Resgatar missão (voltar ao painel)</button>`;
   }
   if (m.status === "em_execucao" && (souExec || isCmd())) {
     acoes += `<button class="btn sec" data-act="esperar">${ic("esperar")} Aguardando material</button>`;
@@ -406,8 +409,36 @@ function viewMissao(id) {
       ${acoes ? `<div class="acoes">${acoes}</div>` : ""}
       <h3>${ic("calendario", "mini-ic")} Histórico</h3>
       <ul class="hist">${hist.map((h) => `<li><small>${fmtDH(h.em)}</small> ${esc(nomeDe(h.por))}: ${esc(h.acao)}</li>`).join("")}</ul>
-    </div>`, "painel");
+    </div>
+    ${S.designar?.id === m.id && m.status === "painel" && isCmd() ? janelaDesignar(m) : ""}`, "painel");
   carregarFotos(id);
+}
+
+// Janela "Designar para…": o responsável escolhe o cadete na lista e confirma com OK.
+// Ninguém vem pré-selecionado, para evitar designar a pessoa errada por engano.
+function janelaDesignar(m) {
+  const ef = efetivo();
+  const vez = ef.find((x) => !x.indisp);
+  const sel = S.designar.sel;
+  const item = (x) => `
+    <button type="button" class="cad-op${x.id === sel ? " on" : ""}" ${x.indisp ? "disabled" : `data-act="escolherCadete" data-id="${esc(x.id)}"`}>
+      <span class="cad-radio"></span>
+      <span class="cad-txt"><b>${esc(x.nome)}${x.id === vez?.id ? ` <span class="badge vez-b">${ic("estrela", "mini-ic")} da vez</span>` : ""}</b>
+        <small>${x.indisp ? "Indisponível" : `${x.pontos} pts · ${x.andamento} em andamento`}</small></span>
+    </button>`;
+  return `
+    <div class="sobre" data-act="fecharDesignar">
+      <div class="janela" role="dialog" aria-modal="true" aria-labelledby="desTit">
+        <h3 id="desTit">${ic("designar")} Designar para…</h3>
+        <p class="dica">${esc(m.titulo)}</p>
+        <div class="cad-lista">${ef.map(item).join("")}</div>
+        <div class="janela-bt">
+          <button type="button" class="btn sec" data-act="fecharDesignar">Cancelar</button>
+          <button type="button" class="btn" data-act="confirmarDesignar" id="desOk" ${sel ? "" : "disabled"}>
+            ${sel ? `OK — ${esc(nomeDe(sel))}` : "OK"}</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 async function carregarFotos(id) {
@@ -1145,10 +1176,40 @@ const ACOES = {
   aba: (b) => { S.tab = b.dataset.aba; route(); },
   zoom: (b) => b.closest("figure").classList.toggle("zoom"),
   capturar: () => upd({ status: "em_execucao", executor: S.me.id, capturadaEm: Date.now(), historico: H("Capturou a missão") }, "Missão capturada. Boa execução!"),
-  designar: () => {
-    const sel = document.getElementById("designarSel").value;
-    if (!sel) return;
-    return upd({ status: "em_execucao", executor: sel, capturadaEm: Date.now(), designadoPor: S.me.id, historico: H("Designou para " + nomeDe(sel)) }, "Missão designada");
+  abrirDesignar: () => { S.designar = { id: S.cur, sel: null }; S.dirty = true; route(); },
+  fecharDesignar: (b, e) => {
+    // Clique no fundo escuro fecha; clique dentro da janela não.
+    if (b.classList.contains("sobre") && e.target !== b) return;
+    S.designar = null; S.dirty = false; route();
+  },
+  escolherCadete: (b) => {
+    S.designar.sel = b.dataset.id;
+    document.querySelectorAll(".cad-op").forEach((x) => x.classList.toggle("on", x === b));
+    const ok = document.getElementById("desOk");
+    ok.disabled = false;
+    ok.textContent = "OK — " + nomeDe(b.dataset.id);
+  },
+  confirmarDesignar: async () => {
+    const { id, sel } = S.designar || {};
+    if (!id || !sel) return;
+    // Transação: só designa se a missão ainda estiver no painel, sem executor.
+    const ok = await acao(() => runTransaction(db, async (t) => {
+      const ref = doc(db, "missoes", id);
+      const atual = await t.get(ref);
+      const d = atual.data();
+      if (!d || d.status !== "painel" || d.executor) throw new Error(`a missão já foi capturada${d?.executor ? " por " + nomeDe(d.executor) : ""}. Atualize a tela.`);
+      t.update(ref, { status: "em_execucao", executor: sel, capturadaEm: Date.now(), designadoPor: S.me.id, historico: H("Designou para " + nomeDe(sel)) });
+    }), "Missão designada para " + nomeDe(sel));
+    S.designar = null; S.dirty = false; route();
+    return ok;
+  },
+  resgatar: () => {
+    const m = S.missoes.find((x) => x.id === S.cur);
+    if (!m?.executor) return;
+    const motivo = prompt(`Resgatar a missão de ${nomeDe(m.executor)} e devolvê-la ao painel?\n\nMotivo (opcional):`);
+    if (motivo === null) return;
+    const txt = "Resgatou a missão de " + nomeDe(m.executor) + (motivo.trim() ? ": " + motivo.trim() : "");
+    return upd({ status: "painel", executor: null, designadoPor: null, capturadaEm: null, motivoEspera: "", historico: H(txt) }, "Missão de volta ao painel");
   },
   arquivar: () => confirm("Arquivar esta missão como duplicada?") && upd({ status: "arquivada", historico: H("Arquivou a missão (duplicada)") }, "Missão arquivada"),
   esperar: () => {
@@ -1235,7 +1296,7 @@ $app.addEventListener("click", async (e) => {
   if (!b || !ACOES[b.dataset.act]) return;
   e.preventDefault();
   if (b.tagName === "BUTTON") b.disabled = true;
-  try { await ACOES[b.dataset.act](b); } finally { if (b.isConnected && b.tagName === "BUTTON") b.disabled = false; }
+  try { await ACOES[b.dataset.act](b, e); } finally { if (b.isConnected && b.tagName === "BUTTON") b.disabled = false; }
 });
 
 // ---------------------------------------------------------------------
@@ -1274,6 +1335,11 @@ const FORMS = {
     return acao(() => setDoc(doc(db, "locais", slug(nome)), { nome }), "Local incluído").then((ok) => { if (ok) { S.dirty = false; route(); } });
   },
 };
+
+// Esc fecha a janela "Designar para…".
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.designar) { S.designar = null; S.dirty = false; route(); }
+});
 
 $app.addEventListener("submit", (e) => {
   const h = FORMS[e.target.id];
