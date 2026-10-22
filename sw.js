@@ -1,6 +1,6 @@
 // Service worker: busca sempre na rede (conferindo com o servidor se há versão nova)
 // e usa a cópia salva só se estiver offline.
-const CACHE = "missao-eletrica-v8";
+const CACHE = "missao-eletrica-v9";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil((async () => {
