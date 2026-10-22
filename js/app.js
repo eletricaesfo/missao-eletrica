@@ -861,16 +861,21 @@ function viewRelatorios() {
 // ---------------------------------------------------------------------
 function viewAdmin() {
   if (!isCmd()) return viewMais();
+  const resp = S.membros.filter((m) => m.perfil === "comandante");
+  const cads = S.membros.filter((m) => m.perfil !== "comandante");
+  // Linha de integrante: o botão troca o perfil (Responsável ⇄ Cadete); ninguém altera o próprio.
+  const linha = (m, ehResp) => `<tr class="${m.ativo === false ? "indisp" : ""}">
+    <td>${esc(m.nome)}${m.id === S.me.id ? ' <b class="tag">VOCÊ</b>' : ""}<br><small>${esc(m.id)}</small></td>
+    <td>${m.id === S.me.id ? "" : `<button class="mini" data-act="${ehResp ? "tornarCadete" : "tornarResp"}" data-id="${esc(m.id)}">
+      ${ic(ehResp ? "usuario" : "estrela", "mini-ic")} ${ehResp ? "Tornar cadete" : "Tornar responsável"}</button>`}</td>
+    <td><input type="checkbox" data-ativo="${esc(m.id)}" ${m.ativo !== false ? "checked" : ""} ${m.id === S.me.id ? "disabled" : ""} title="Ativo"></td>
+    <td>${m.id !== S.me.id ? `<button class="mini perigo" data-act="delMembro" data-id="${esc(m.id)}" title="Remover">${ic("excluir", "mini-ic")}</button>` : ""}</td></tr>`;
+  const cab = `<tr><th>Nome / e-mail</th><th>Perfil</th><th>Ativo</th><th></th></tr>`;
   shell("Administração", `
-    <h3>Integrantes da missão (${S.membros.length})</h3>
-    <table class="tab">
-      <tr><th>Nome / e-mail</th><th>Perfil</th><th>Ativo</th><th></th></tr>
-      ${S.membros.map((m) => `<tr>
-        <td>${esc(m.nome)}<br><small>${esc(m.id)}</small></td>
-        <td><select data-perfil="${esc(m.id)}" ${m.id === S.me.id ? 'disabled title="Você não pode alterar o próprio perfil"' : ""}>${opts([["cadete", "Cadete"], ["comandante", "Responsável"]], m.perfil)}</select></td>
-        <td><input type="checkbox" data-ativo="${esc(m.id)}" ${m.ativo !== false ? "checked" : ""} ${m.id === S.me.id ? "disabled" : ""}></td>
-        <td>${m.id !== S.me.id ? `<button class="mini perigo" data-act="delMembro" data-id="${esc(m.id)}" title="Remover">${ic("excluir", "mini-ic")}</button>` : ""}</td></tr>`).join("")}
-    </table>
+    <h3>${ic("estrela", "mini-ic")} Responsáveis pela missão (${resp.length})</h3>
+    <table class="tab tab-resp">${cab}${resp.map((m) => linha(m, true)).join("")}</table>
+    <h3>${ic("efetivo", "mini-ic")} Cadetes da missão (${cads.length})</h3>
+    ${cads.length ? `<table class="tab">${cab}${cads.map((m) => linha(m, false)).join("")}</table>` : '<p class="vazio">Nenhum cadete cadastrado.</p>'}
     <form id="fMembro" class="box"><h3>Incluir integrante</h3>
       <label>E-mail Google*<input name="email" type="email" required placeholder="nome@gmail.com"></label>
       <label>Nome de guerra*<input name="nome" required placeholder="Cad. Fulano"></label>
@@ -978,7 +983,7 @@ function painelZerar() {
   const ms = [...S.missoes].sort((a, b) => (b.criadaEm || 0) - (a.criadaEm || 0));
   return `<h3>${ic("excluir", "mini-ic")} Zerar dados de teste</h3>
     <form id="fZerar" class="box zerar">
-      <p class="dica">Apaga dados inseridos para teste antes de começar com os dados reais. Integrantes e locais <b>não</b> são apagados. Antes de apagar, o app baixa uma planilha de backup com tudo o que será removido.</p>
+      <p class="dica">Apaga dados inseridos para teste antes de começar com os dados reais. Integrantes e locais <b>não</b> são apagados.</p>
       <label class="check"><input type="checkbox" id="zEstoque"> Estoque: ${S.materiais.length} material(is) e todo o histórico de entradas/saídas</label>
       <label class="check"><input type="checkbox" id="zCompras"> Lista de compras: ${S.compras.length} pedido(s)</label>
       <label class="check"><input type="checkbox" id="zMissoes"> Todas as missões: ${S.missoes.length} missão(ões), com as fotos</label>
@@ -986,6 +991,10 @@ function painelZerar() {
         <div class="lista-zerar">${ms.map((m) => `<label class="check"><input type="checkbox" class="zMissao" value="${esc(m.id)}">
           <span>${esc(m.titulo)}<small>${STATUS[m.status] || esc(m.status)} · ${esc(m.local)} · ${fmtData(m.criadaEm)}</small></span></label>`).join("")}</div>
       </details>` : ""}
+      <fieldset class="backup-op"><legend>Backup antes de apagar</legend>
+        <label class="check"><input type="radio" name="zBackup" value="planilha" checked> Baixar planilha com tudo o que será apagado</label>
+        <label class="check"><input type="radio" name="zBackup" value="nenhum"> Não baixar nada (apagar sem backup)</label>
+      </fieldset>
       <button type="button" class="btn perigo" data-act="zerar">${ic("excluir")} Zerar selecionados</button>
     </form>`;
 }
@@ -1005,16 +1014,21 @@ async function zerarDados(b) {
   const escolhidas = new Set([...document.querySelectorAll(".zMissao:checked")].map((x) => x.value));
   const missoes = todas ? [...S.missoes] : S.missoes.filter((m) => escolhidas.has(m.id));
   if (!estoque && !compras && !missoes.length) return toast("Marque o que deseja apagar.", true);
+  const comBackup = document.querySelector('input[name="zBackup"]:checked')?.value !== "nenhum";
 
   const itens = [];
   if (estoque) itens.push(`• ${S.materiais.length} material(is) e o histórico do estoque`);
   if (compras) itens.push(`• ${S.compras.length} pedido(s) da lista de compras`);
   if (missoes.length) itens.push(`• ${missoes.length} missão(ões) e suas fotos`);
-  const conf = prompt(`Serão APAGADOS definitivamente:\n${itens.join("\n")}\n\nUma planilha de backup será baixada antes.\nPara confirmar, digite ZERAR:`);
+  // Sem backup, a confirmação é mais forte: não há como recuperar depois.
+  const palavra = comBackup ? "ZERAR" : "APAGAR SEM BACKUP";
+  const conf = prompt(`Serão APAGADOS definitivamente:\n${itens.join("\n")}\n\n${comBackup
+    ? "Uma planilha de backup será baixada antes."
+    : "ATENÇÃO: nenhum backup será baixado. Não será possível recuperar esses dados."}\nPara confirmar, digite ${palavra}:`);
   if (conf === null) return;
-  if (conf.trim().toUpperCase() !== "ZERAR") return toast("Confirmação incorreta. Nada foi apagado.", true);
+  if (conf.trim().toUpperCase() !== palavra) return toast("Confirmação incorreta. Nada foi apagado.", true);
 
-  b.textContent = "Preparando backup…";
+  b.textContent = comBackup ? "Preparando backup…" : "Apagando…";
   const ok = await acao(async () => {
     // 1) Lê o que será apagado (movimentações e fotos não ficam carregadas no app)
     const movs = estoque ? (await getDocs(collection(db, "movimentacoes"))).docs : [];
@@ -1027,26 +1041,28 @@ async function zerarDados(b) {
       }
     }
 
-    // 2) Planilha de backup
-    const X = await xlsx();
-    const wb = X.utils.book_new();
-    const aba = (nome, linhas) => linhas.length && X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), nome);
-    aba("Missões", missoes.map((m) => ({
-      Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status, Prioridade: prioNome(m.prioridade),
-      Peso: Number(m.peso) || 1, Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtDH(m.criadaEm), Executor: nomeDe(m.executor),
-      "Concluída em": fmtDH(m.concluidaEm), "Validada em": fmtDH(m.validadaEm), Descrição: m.descricao || "",
-      "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "), Fotos: fotos.filter((f) => f.data().missaoId === m.id).length,
-    })));
-    if (estoque) {
-      aba("Materiais", S.materiais.map((m) => ({ Nome: m.nome, Unidade: m.unidade, Quantidade: m.qtd, Categoria: catDe(m) })));
-      aba("Movimentações", movs.map((d) => d.data()).sort((x, y) => (x.em || 0) - (y.em || 0)).map((v) => ({
-        Data: fmtDH(v.em), Material: S.materiais.find((m) => m.id === v.materialId)?.nome || v.materialId, Tipo: v.tipo, Quantidade: v.qtd, Por: nomeDe(v.por),
+    // 2) Planilha de backup (se escolhida)
+    if (comBackup) {
+      const X = await xlsx();
+      const wb = X.utils.book_new();
+      const aba = (nome, linhas) => linhas.length && X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), nome);
+      aba("Missões", missoes.map((m) => ({
+        Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status, Prioridade: prioNome(m.prioridade),
+        Peso: Number(m.peso) || 1, Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtDH(m.criadaEm), Executor: nomeDe(m.executor),
+        "Concluída em": fmtDH(m.concluidaEm), "Validada em": fmtDH(m.validadaEm), Descrição: m.descricao || "",
+        "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "), Fotos: fotos.filter((f) => f.data().missaoId === m.id).length,
       })));
+      if (estoque) {
+        aba("Materiais", S.materiais.map((m) => ({ Nome: m.nome, Unidade: m.unidade, Quantidade: m.qtd, Categoria: catDe(m) })));
+        aba("Movimentações", movs.map((d) => d.data()).sort((x, y) => (x.em || 0) - (y.em || 0)).map((v) => ({
+          Data: fmtDH(v.em), Material: S.materiais.find((m) => m.id === v.materialId)?.nome || v.materialId, Tipo: v.tipo, Quantidade: v.qtd, Por: nomeDe(v.por),
+        })));
+      }
+      if (compras) aba("Compras", S.compras.map((c) => ({
+        Material: c.item, Quantidade: c.qtd, Unidade: c.unidade, Situação: c.status, "Pedido por": nomeDe(c.criadoPor), Data: fmtDH(c.em),
+      })));
+      if (wb.SheetNames.length) X.writeFile(wb, `backup-antes-de-zerar-${hojeISO()}.xlsx`);
     }
-    if (compras) aba("Compras", S.compras.map((c) => ({
-      Material: c.item, Quantidade: c.qtd, Unidade: c.unidade, Situação: c.status, "Pedido por": nomeDe(c.criadoPor), Data: fmtDH(c.em),
-    })));
-    if (wb.SheetNames.length) X.writeFile(wb, `backup-antes-de-zerar-${hojeISO()}.xlsx`);
 
     // 3) Apaga
     b.textContent = "Apagando…";
@@ -1057,7 +1073,7 @@ async function zerarDados(b) {
       await apagarDocs(S.materiais.map((m) => doc(db, "materiais", m.id)));
     }
     if (compras) await apagarDocs(S.compras.map((c) => doc(db, "compras", c.id)));
-  }, "Dados apagados. Backup baixado.");
+  }, comBackup ? "Dados apagados. Backup baixado." : "Dados apagados (sem backup).");
   if (ok) { S.fotos = {}; S.dirty = false; }
   route();
 }
@@ -1413,6 +1429,16 @@ const ACOES = {
     }, "Estoque ajustado");
   },
   delMat: (b) => confirm("Excluir este material?") && acao(() => deleteDoc(doc(db, "materiais", b.dataset.id)), "Material excluído"),
+  tornarResp: (b) => {
+    const m = S.membros.find((x) => x.id === b.dataset.id);
+    if (!m || !confirm(`Tornar ${m.nome} responsável pela missão?\n\nEle poderá designar, validar, reabrir e arquivar missões, gerir o estoque e administrar os integrantes.`)) return;
+    return acao(() => updateDoc(doc(db, "membros", m.id), { perfil: "comandante" }), `${m.nome} agora é responsável`);
+  },
+  tornarCadete: (b) => {
+    const m = S.membros.find((x) => x.id === b.dataset.id);
+    if (!m || !protegeComandante(m.id, true)) return;
+    return acao(() => updateDoc(doc(db, "membros", m.id), { perfil: "cadete" }), `${m.nome} agora é cadete`);
+  },
   delMembro: (b) => protegeComandante(b.dataset.id, true) && confirm(`Remover ${b.dataset.id} da missão?`) && acao(() => deleteDoc(doc(db, "membros", b.dataset.id)), "Integrante removido"),
   delLocal: (b) => acao(() => deleteDoc(doc(db, "locais", b.dataset.id)), "Local removido"),
   modelo: (b) => baixarModelo(b.dataset.tipo),
@@ -1498,10 +1524,7 @@ $app.addEventListener("change", async (e) => {
     S.rel = { de: document.getElementById("relDe").value || CICLO_INICIO, ate: document.getElementById("relAte").value || hojeISO(), cadete: document.getElementById("relCadete").value };
     route();
   } else if (t.dataset.import) await lerPlanilha(t);
-  else if (t.dataset.perfil) {
-    if (!protegeComandante(t.dataset.perfil, t.value !== "comandante")) { t.value = "comandante"; return; }
-    acao(() => updateDoc(doc(db, "membros", t.dataset.perfil), { perfil: t.value }), "Perfil alterado");
-  } else if (t.dataset.ativo) {
+  else if (t.dataset.ativo) {
     if (!protegeComandante(t.dataset.ativo, !t.checked)) { t.checked = true; return; }
     acao(() => updateDoc(doc(db, "membros", t.dataset.ativo), { ativo: t.checked }), t.checked ? "Integrante reativado" : "Integrante desativado");
   }
