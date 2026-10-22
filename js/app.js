@@ -10,7 +10,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs,
   setDoc, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, writeBatch,
-  increment, arrayUnion,
+  increment, arrayUnion, getCountFromServer, getAggregateFromServer, sum, count,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   firebaseConfig, CICLO_INICIO, HORAS_ALERTA_PAINEL, TIPOS, PRIORIDADES, PESOS,
@@ -179,6 +179,7 @@ function startListeners() {
       }
       S.loaded.add(nome);
       if (S.loaded.size >= 5 && !S.dirty) route();
+      if (S.loaded.size >= 5 && !S.armazChecado && isCmd()) { S.armazChecado = true; avisoArmazenamento(); }
     }, (err) => {
       console.error(err);
       toast(`Erro ao carregar ${nome}: ${err.code}`, true);
@@ -335,7 +336,7 @@ async function salvarNova(f) {
     });
     novoId = ref.id;
     if (foto) {
-      await addDoc(collection(db, "fotos"), { missaoId: ref.id, tipo: "antes", img: foto, por: S.me.id, em: Date.now() });
+      await addDoc(collection(db, "fotos"), { missaoId: ref.id, tipo: "antes", img: foto, tam: foto.length, por: S.me.id, em: Date.now() });
     }
   }, "Missão cadastrada");
   btn.disabled = false; btn.innerHTML = `${ic("nova")} Cadastrar missão`;
@@ -421,7 +422,9 @@ async function carregarFotos(id) {
   const lista = S.fotos[id].filter((f) => String(f.img).startsWith("data:image/"));
   el.innerHTML = lista.length
     ? lista.map((f) => `<figure><img src="${f.img}" loading="lazy" data-act="zoom" alt="Foto ${esc(f.tipo)}"><figcaption>${esc(f.tipo)} · ${fmtData(f.em)}</figcaption></figure>`).join("")
-    : '<p class="vazio">Sem fotos.</p>';
+    : (S.missoes.find((m) => m.id === id)?.fotosLimpasEm
+      ? `<p class="vazio">Fotos removidas em ${fmtData(S.missoes.find((m) => m.id === id).fotosLimpasEm)} para liberar espaço (guardadas no backup baixado pelo responsável).</p>`
+      : '<p class="vazio">Sem fotos.</p>');
 }
 
 function formConcluir() {
@@ -452,7 +455,7 @@ async function concluir(f) {
     const imgs = [];
     for (const file of files) imgs.push(await comprimir(file));
     for (const img of imgs) {
-      await addDoc(collection(db, "fotos"), { missaoId: id, tipo: "depois", img, por: S.me.id, em: Date.now() });
+      await addDoc(collection(db, "fotos"), { missaoId: id, tipo: "depois", img, tam: img.length, por: S.me.id, em: Date.now() });
     }
     const b = writeBatch(db);
     b.update(doc(db, "missoes", id), {
@@ -741,7 +744,160 @@ function viewAdmin() {
       <button class="btn sec">${ic("local")} Incluir</button>
     </form>
     ${painelImport("locais")}
+    <h3>${ic("foto", "mini-ic")} Armazenamento de fotos</h3>
+    <div id="armaz" class="box"><p class="vazio">Calculando…</p></div>
   `, "mais");
+  carregarArmaz();
+}
+
+// ---------------------------------------------------------------------
+// Armazenamento de fotos (plano gratuito do Firebase: 1 GiB no total)
+// ---------------------------------------------------------------------
+const LIMITE_BYTES = 1024 ** 3;     // 1 GiB do plano gratuito
+const ALERTA_PCT = 70;              // avisa os responsáveis a partir daqui
+const MESES_FOTOS = 6;              // fotos de missões encerradas há mais tempo podem ser limpas
+const LOTE_LIMPEZA = 150;           // fotos por rodada (mantém o .zip leve no celular)
+const TAM_MEDIO = 250 * 1024;       // estimativa para fotos antigas sem tamanho gravado
+
+const fmtBytes = (b) => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + " GB" : b >= 1024 ** 2 ? (b / 1024 ** 2).toFixed(1) + " MB" : Math.round(b / 1024) + " KB";
+
+// Data em que a missão foi encerrada (validada ou arquivada)
+function encerradaEm(m) {
+  if (m.validadaEm) return m.validadaEm;
+  const h = (m.historico || []).reduce((a, x) => Math.max(a, x.em || 0), 0);
+  return h || m.criadaEm || 0;
+}
+
+// Missões cujas fotos já podem ser limpas
+function missoesParaLimpar() {
+  const corte = new Date(); corte.setMonth(corte.getMonth() - MESES_FOTOS);
+  return S.missoes.filter((m) => ["validada", "arquivada"].includes(m.status) && encerradaEm(m) < corte.getTime());
+}
+
+// Uso total, sem baixar as fotos (consultas de contagem/soma do Firestore)
+async function medirArmaz() {
+  const col = collection(db, "fotos");
+  const [tot, comTam] = await Promise.all([
+    getCountFromServer(col),
+    getAggregateFromServer(query(col, where("tam", ">", 0)), { n: count(), bytes: sum("tam") }),
+  ]);
+  const n = tot.data().count;
+  const { n: nTam, bytes } = comTam.data();
+  const usado = (bytes || 0) + Math.max(0, n - nTam) * TAM_MEDIO;
+  return { n, usado, pct: Math.min(100, (usado / LIMITE_BYTES) * 100) };
+}
+
+// Conta as fotos antigas (de missões encerradas há 6+ meses)
+async function contarAntigas() {
+  const ids = missoesParaLimpar().map((m) => m.id);
+  let n = 0;
+  for (let i = 0; i < ids.length; i += 30) {
+    const r = await getCountFromServer(query(collection(db, "fotos"), where("missaoId", "in", ids.slice(i, i + 30))));
+    n += r.data().count;
+  }
+  return { n, missoes: ids.length };
+}
+
+async function avisoArmazenamento() {
+  try {
+    const a = await medirArmaz();
+    S.armaz = a;
+    if (a.pct >= ALERTA_PCT) toast(`Atenção: fotos ocupam ${a.pct.toFixed(0)}% do espaço gratuito. Faça a limpeza em Mais → Administração.`, true);
+  } catch (e) { console.error(e); }
+}
+
+async function carregarArmaz() {
+  const el = () => document.getElementById("armaz");
+  try {
+    const [a, ant] = await Promise.all([medirArmaz(), contarAntigas()]);
+    S.armaz = a; S.antigas = ant;
+    if (!el()) return;
+    const cor = a.pct >= 90 ? "critico" : a.pct >= ALERTA_PCT ? "alerta" : "";
+    el().innerHTML = `
+      <p><b>${a.n}</b> fotos · <b>${fmtBytes(a.usado)}</b> de 1 GB (${a.pct.toFixed(1)}%)</p>
+      <div class="barra ${cor}"><span style="width:${Math.max(a.pct, 0.5).toFixed(1)}%"></span></div>
+      ${cor ? `<p class="aviso-armaz">${ic("alerta", "mini-ic")} Espaço ${a.pct >= 90 ? "quase esgotado" : "acima de " + ALERTA_PCT + "%"}. Faça a limpeza abaixo; se o limite for atingido, novas fotos deixam de ser gravadas.</p>` : ""}
+      <p class="dica">Fotos de missões validadas ou arquivadas há mais de ${MESES_FOTOS} meses podem ser limpas. Antes de apagar, o app baixa um arquivo .zip com as fotos e um relatório das missões — guarde-o no Drive da missão.</p>
+      ${ant.n
+        ? `<p><b>${ant.n}</b> foto(s) antiga(s) de ${ant.missoes} missão(ões) encerrada(s) há mais de ${MESES_FOTOS} meses.</p>
+           <button class="btn sec" data-act="limparFotos">${ic("exportar")} Baixar backup e limpar${ant.n > LOTE_LIMPEZA ? ` (${LOTE_LIMPEZA} por vez)` : ""}</button>`
+        : `<p class="vazio">Nenhuma foto antiga para limpar.</p>`}`;
+  } catch (e) {
+    console.error(e);
+    if (el()) el().innerHTML = `<p class="vazio">Não foi possível calcular o uso agora (${esc(e.code || e.message)}).</p>`;
+  }
+}
+
+let FFLATE = null;
+async function fflate() {
+  if (!FFLATE) FFLATE = await import("https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js");
+  return FFLATE;
+}
+
+const nomeArq = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\- ]+/g, "").trim().slice(0, 50) || "missao";
+
+// Baixa um .zip com as fotos antigas + relatório e, após confirmação, apaga do banco
+async function limparFotos(b) {
+  const alvo = new Map(missoesParaLimpar().map((m) => [m.id, m]));
+  const ids = [...alvo.keys()];
+  if (!ids.length) return toast("Nenhuma foto antiga para limpar.");
+  b.textContent = "Preparando backup…";
+  const fotos = [];
+  try {
+    for (let i = 0; i < ids.length && fotos.length < LOTE_LIMPEZA; i += 30) {
+      const q = await getDocs(query(collection(db, "fotos"), where("missaoId", "in", ids.slice(i, i + 30))));
+      q.docs.forEach((d) => fotos.length < LOTE_LIMPEZA && fotos.push({ id: d.id, ...d.data() }));
+    }
+  } catch (e) { console.error(e); toast("Erro ao ler as fotos: " + (e.code || e.message), true); return carregarArmaz(); }
+  if (!fotos.length) { toast("Nenhuma foto antiga para limpar."); return carregarArmaz(); }
+
+  // Monta o .zip: uma pasta por missão + planilha com os dados das missões
+  const { zipSync, strToU8 } = await fflate();
+  const X = await xlsx();
+  const arquivos = {}, missoesNoZip = new Map(), contador = {};
+  for (const f of fotos) {
+    const m = alvo.get(f.missaoId);
+    const pasta = `${new Date(encerradaEm(m)).toISOString().slice(0, 10)} - ${nomeArq(m.titulo)} (${m.id.slice(0, 6)})`;
+    missoesNoZip.set(m.id, { m, pasta });
+    const k = pasta + f.tipo; contador[k] = (contador[k] || 0) + 1;
+    const b64 = String(f.img).split(",")[1] || "";
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    arquivos[`${pasta}/${f.tipo}-${contador[k]}.jpg`] = [bin, { level: 0 }];
+  }
+  const linhas = [...missoesNoZip.values()].map(({ m, pasta }) => ({
+    Pasta: pasta, Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status,
+    "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtData(m.criadaEm), Executor: nomeDe(m.executor),
+    "Concluída em": fmtData(m.concluidaEm), "Encerrada em": fmtData(encerradaEm(m)), Descrição: m.descricao || "",
+    "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "), Observações: m.obs || "",
+  }));
+  const wb = X.utils.book_new();
+  X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), "Missões");
+  arquivos["missoes.xlsx"] = new Uint8Array(X.write(wb, { type: "array", bookType: "xlsx" }));
+  arquivos["LEIA-ME.txt"] = strToU8(`Backup de fotos da Missão Elétrica EsFO\r\nGerado em ${fmtDH(Date.now())} por ${nomeDe(S.me.id)}\r\n${fotos.length} foto(s) de ${missoesNoZip.size} missão(ões) encerrada(s) há mais de ${MESES_FOTOS} meses.\r\n`);
+  const nomeZip = `backup-fotos-missao-eletrica-${hojeISO()}.zip`;
+  const blob = new Blob([zipSync(arquivos)], { type: "application/zip" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = nomeZip;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+
+  if (!confirm(`O arquivo "${nomeZip}" (${fmtBytes(blob.size)}) foi baixado.\n\nConfira se ele está salvo no celular/computador antes de continuar.\n\nApagar agora ${fotos.length} foto(s) de ${missoesNoZip.size} missão(ões) do app?`)) {
+    toast("Limpeza cancelada. Nada foi apagado.");
+    return carregarArmaz();
+  }
+  b.textContent = "Apagando…";
+  const ok = await acao(async () => {
+    for (let i = 0; i < fotos.length; i += 400) {
+      const bt = writeBatch(db);
+      fotos.slice(i, i + 400).forEach((f) => bt.delete(doc(db, "fotos", f.id)));
+      await bt.commit();
+    }
+    const bt = writeBatch(db);
+    [...missoesNoZip.keys()].forEach((id) => bt.update(doc(db, "missoes", id), { fotosLimpasEm: Date.now() }));
+    await bt.commit();
+  }, `${fotos.length} foto(s) apagada(s). Espaço liberado.`);
+  if (ok) missoesNoZip.forEach((_, id) => delete S.fotos[id]);
+  carregarArmaz();
 }
 
 // ---------------------------------------------------------------------
@@ -976,6 +1132,7 @@ const ACOES = {
   delLocal: (b) => acao(() => deleteDoc(doc(db, "locais", b.dataset.id)), "Local removido"),
   modelo: (b) => baixarModelo(b.dataset.tipo),
   exportar: (b) => exportar(b.dataset.tipo),
+  limparFotos: (b) => limparFotos(b),
   confirmarImport,
   imprimir: () => window.print(),
 };
