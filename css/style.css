@@ -273,3 +273,7 @@ label.check input { width: auto; margin: 0; }
 .badge.vez-b { background: var(--ouro); color: var(--azul-esc); display: inline-flex; align-items: center; gap: 3px; }
 .janela-bt { display: flex; gap: 8px; border-top: 1px solid var(--borda); padding-top: 8px; margin-top: 6px; }
 .janela-bt .btn { flex: 1; margin: 0; }
+
+/* Encerrada sem execução */
+.badge.st-sem_execucao { background: #eceff3; color: var(--grafite); }
+.box.sem-exec { border-top: 4px solid var(--suave); }
