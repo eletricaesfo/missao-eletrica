@@ -296,3 +296,6 @@ label.check input { width: auto; margin: 0; }
   .so-print { display: block; }
   .doc-compras { color: #000; }
 }
+
+/* Importar lista de compras */
+.imp-compras > .box { margin: 0; border: 0; border-top: 1px solid var(--borda); border-radius: 0; }
