@@ -746,6 +746,7 @@ function viewAdmin() {
     ${painelImport("locais")}
     <h3>${ic("foto", "mini-ic")} Armazenamento de fotos</h3>
     <div id="armaz" class="box"><p class="vazio">Calculando…</p></div>
+    ${painelZerar()}
   `, "mais");
   carregarArmaz();
 }
@@ -826,6 +827,97 @@ async function carregarArmaz() {
     console.error(e);
     if (el()) el().innerHTML = `<p class="vazio">Não foi possível calcular o uso agora (${esc(e.code || e.message)}).</p>`;
   }
+}
+
+// ---------------------------------------------------------------------
+// Zerar dados de teste (só responsáveis). Integrantes e locais não são tocados.
+// ---------------------------------------------------------------------
+function painelZerar() {
+  const ms = [...S.missoes].sort((a, b) => (b.criadaEm || 0) - (a.criadaEm || 0));
+  return `<h3>${ic("excluir", "mini-ic")} Zerar dados de teste</h3>
+    <form id="fZerar" class="box zerar">
+      <p class="dica">Apaga dados inseridos para teste antes de começar com os dados reais. Integrantes e locais <b>não</b> são apagados. Antes de apagar, o app baixa uma planilha de backup com tudo o que será removido.</p>
+      <label class="check"><input type="checkbox" id="zEstoque"> Estoque: ${S.materiais.length} material(is) e todo o histórico de entradas/saídas</label>
+      <label class="check"><input type="checkbox" id="zCompras"> Lista de compras: ${S.compras.length} pedido(s)</label>
+      <label class="check"><input type="checkbox" id="zMissoes"> Todas as missões: ${S.missoes.length} missão(ões), com as fotos</label>
+      ${ms.length ? `<details class="grupo"><summary><span class="grupo-nome">Ou escolher missões específicas<small>marque só as de teste</small></span><span class="seta">›</span></summary>
+        <div class="lista-zerar">${ms.map((m) => `<label class="check"><input type="checkbox" class="zMissao" value="${esc(m.id)}">
+          <span>${esc(m.titulo)}<small>${STATUS[m.status] || esc(m.status)} · ${esc(m.local)} · ${fmtData(m.criadaEm)}</small></span></label>`).join("")}</div>
+      </details>` : ""}
+      <button type="button" class="btn perigo" data-act="zerar">${ic("excluir")} Zerar selecionados</button>
+    </form>`;
+}
+
+async function apagarDocs(refs) {
+  for (let i = 0; i < refs.length; i += 400) {
+    const b = writeBatch(db);
+    refs.slice(i, i + 400).forEach((r) => b.delete(r));
+    await b.commit();
+  }
+}
+
+async function zerarDados(b) {
+  const estoque = document.getElementById("zEstoque")?.checked;
+  const compras = document.getElementById("zCompras")?.checked;
+  const todas = document.getElementById("zMissoes")?.checked;
+  const escolhidas = new Set([...document.querySelectorAll(".zMissao:checked")].map((x) => x.value));
+  const missoes = todas ? [...S.missoes] : S.missoes.filter((m) => escolhidas.has(m.id));
+  if (!estoque && !compras && !missoes.length) return toast("Marque o que deseja apagar.", true);
+
+  const itens = [];
+  if (estoque) itens.push(`• ${S.materiais.length} material(is) e o histórico do estoque`);
+  if (compras) itens.push(`• ${S.compras.length} pedido(s) da lista de compras`);
+  if (missoes.length) itens.push(`• ${missoes.length} missão(ões) e suas fotos`);
+  const conf = prompt(`Serão APAGADOS definitivamente:\n${itens.join("\n")}\n\nUma planilha de backup será baixada antes.\nPara confirmar, digite ZERAR:`);
+  if (conf === null) return;
+  if (conf.trim().toUpperCase() !== "ZERAR") return toast("Confirmação incorreta. Nada foi apagado.", true);
+
+  b.textContent = "Preparando backup…";
+  const ok = await acao(async () => {
+    // 1) Lê o que será apagado (movimentações e fotos não ficam carregadas no app)
+    const movs = estoque ? (await getDocs(collection(db, "movimentacoes"))).docs : [];
+    let fotos = [];
+    if (todas) fotos = (await getDocs(collection(db, "fotos"))).docs;
+    else {
+      const ids = missoes.map((m) => m.id);
+      for (let i = 0; i < ids.length; i += 30) {
+        fotos.push(...(await getDocs(query(collection(db, "fotos"), where("missaoId", "in", ids.slice(i, i + 30))))).docs);
+      }
+    }
+
+    // 2) Planilha de backup
+    const X = await xlsx();
+    const wb = X.utils.book_new();
+    const aba = (nome, linhas) => linhas.length && X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), nome);
+    aba("Missões", missoes.map((m) => ({
+      Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status, Prioridade: prioNome(m.prioridade),
+      Peso: Number(m.peso) || 1, "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtDH(m.criadaEm), Executor: nomeDe(m.executor),
+      "Concluída em": fmtDH(m.concluidaEm), "Validada em": fmtDH(m.validadaEm), Descrição: m.descricao || "",
+      "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "), Fotos: fotos.filter((f) => f.data().missaoId === m.id).length,
+    })));
+    if (estoque) {
+      aba("Materiais", S.materiais.map((m) => ({ Nome: m.nome, Unidade: m.unidade, Quantidade: m.qtd, Categoria: catDe(m) })));
+      aba("Movimentações", movs.map((d) => d.data()).sort((x, y) => (x.em || 0) - (y.em || 0)).map((v) => ({
+        Data: fmtDH(v.em), Material: S.materiais.find((m) => m.id === v.materialId)?.nome || v.materialId, Tipo: v.tipo, Quantidade: v.qtd, Por: nomeDe(v.por),
+      })));
+    }
+    if (compras) aba("Compras", S.compras.map((c) => ({
+      Material: c.item, Quantidade: c.qtd, Unidade: c.unidade, Situação: c.status, "Pedido por": nomeDe(c.criadoPor), Data: fmtDH(c.em),
+    })));
+    if (wb.SheetNames.length) X.writeFile(wb, `backup-antes-de-zerar-${hojeISO()}.xlsx`);
+
+    // 3) Apaga
+    b.textContent = "Apagando…";
+    await apagarDocs(fotos.map((d) => d.ref));
+    await apagarDocs(missoes.map((m) => doc(db, "missoes", m.id)));
+    if (estoque) {
+      await apagarDocs(movs.map((d) => d.ref));
+      await apagarDocs(S.materiais.map((m) => doc(db, "materiais", m.id)));
+    }
+    if (compras) await apagarDocs(S.compras.map((c) => doc(db, "compras", c.id)));
+  }, "Dados apagados. Backup baixado.");
+  if (ok) { S.fotos = {}; S.dirty = false; }
+  route();
 }
 
 let FFLATE = null;
@@ -1133,6 +1225,7 @@ const ACOES = {
   modelo: (b) => baixarModelo(b.dataset.tipo),
   exportar: (b) => exportar(b.dataset.tipo),
   limparFotos: (b) => limparFotos(b),
+  zerar: (b) => zerarDados(b),
   confirmarImport,
   imprimir: () => window.print(),
 };
