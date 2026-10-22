@@ -74,6 +74,8 @@ service cloud.firestore {
     match /movimentacoes/{id} {
       allow read: if membro();
       allow create: if membro() && request.resource.data.por == email();
+      // Só responsáveis apagam (ferramenta "Zerar dados de teste").
+      allow delete: if comandante();
     }
 
     // Lista de compras: qualquer integrante pede; responsáveis marcam como comprado.
