@@ -277,3 +277,9 @@ label.check input { width: auto; margin: 0; }
 /* Encerrada sem execução */
 .badge.st-sem_execucao { background: #eceff3; color: var(--grafite); }
 .box.sem-exec { border-top: 4px solid var(--suave); }
+
+/* Administração: responsáveis em destaque e escolha do backup */
+.tab-resp th { background: var(--ouro); color: var(--azul-esc); }
+.tab .mini { white-space: nowrap; }
+.backup-op { border: 1px solid var(--borda); border-radius: 8px; padding: 6px 12px; margin: 12px 0; }
+.backup-op legend { font-size: .9rem; font-weight: 600; color: var(--grafite); padding: 0 4px; }
