@@ -29,12 +29,14 @@ service cloud.firestore {
     match /missoes/{id} {
       allow read: if membro();
 
-      // Qualquer cadete cadastra; a missão nasce no painel, sem executor.
+      // Qualquer cadete cadastra; a missão nasce no painel, sem executor
+      // e com a origem da demanda (como o problema chegou à missão).
       allow create: if comandante()
         || (membro()
             && request.resource.data.status == 'painel'
             && request.resource.data.executor == null
-            && request.resource.data.criadoPor == email());
+            && request.resource.data.criadoPor == email()
+            && request.resource.data.origem in ['proprio', 'terceiro', 'dia_a_esfo', 'outro']);
 
       allow update: if comandante()
         // Captura: só se ninguém capturou e só para si mesmo.
@@ -49,7 +51,18 @@ service cloud.firestore {
             && request.resource.data.executor == email()
             && resource.data.status in ['em_execucao', 'aguardando_material']
             && request.resource.data.status in ['em_execucao', 'aguardando_material', 'concluida']
-            && mudaSo(['status', 'concluidaEm', 'obs', 'tempoMin', 'materiaisUsados', 'historico', 'motivoEspera']));
+            && mudaSo(['status', 'concluidaEm', 'obs', 'tempoMin', 'materiaisUsados', 'historico', 'motivoEspera']))
+        // Encerrar sem execução: só o executor, com motivo e justificativa.
+        // Reabrir fica só com os responsáveis (coberto por comandante()).
+        || (membro()
+            && resource.data.executor == email()
+            && request.resource.data.executor == email()
+            && resource.data.status in ['em_execucao', 'aguardando_material']
+            && request.resource.data.status == 'sem_execucao'
+            && request.resource.data.motivoSemExec in ['nao_constatado', 'ja_solucionado']
+            && request.resource.data.semExecObs is string && request.resource.data.semExecObs.size() > 0
+            && request.resource.data.semExecPor == email()
+            && mudaSo(['status', 'motivoSemExec', 'semExecObs', 'solucionadoPor', 'semExecPor', 'semExecEm', 'motivoEspera', 'historico']));
 
       allow delete: if comandante();
     }

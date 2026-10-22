@@ -5,13 +5,14 @@ Feito em HTML + JavaScript puro, hospedado no GitHub Pages, com dados no Firebas
 
 ## O que o app faz
 
-- Qualquer cadete da missão cadastra uma missão ao encontrar um problema elétrico (com foto).
+- Qualquer cadete da missão cadastra uma missão ao encontrar um problema elétrico (com foto), informando como o problema chegou à missão: constatado por integrante, informado por cadete de fora (com nome e turma), relatório do Dia-à-EsFO (com a data) ou outro.
 - Painel com as missões abertas; o cadete captura a missão e executa.
 - Os responsáveis pela missão designam um cadete (botão "Designar para…", escolha na lista e OK) apenas para missões que ninguém capturou, resgatam de volta ao painel uma missão em execução ou aguardando material (designação errada, cadete indisponível), arquivam duplicadas e validam conclusões.
 - Conclusão com fotos de depois, material usado (baixa automática do estoque), tempo e observações.
+- Encerramento sem execução pelo executor, quando o problema não existe ou já foi solucionado (motivo, justificativa e foto do local obrigatórios). Não conta pontos no rodízio (aparece na coluna S/E do Efetivo) e os responsáveis podem reabrir a missão.
 - Rodízio por pontos (peso 1 a 3 por missão) e contador por cadete (aba Efetivo).
 - Estoque de materiais com lista de compras, importação e exportação de planilhas.
-- Relatórios por período e por cadete, em PDF (impressão) e planilha.
+- Relatórios por período e por cadete, em PDF (impressão) e planilha, com resumo por origem da demanda e lista das missões encerradas sem execução.
 
 ## Instalação (uma vez)
 
@@ -38,7 +39,7 @@ Os demais integrantes e o segundo responsável são incluídos pelo próprio app
 
 ## Manutenção
 - Novo semestre: altere `CICLO_INICIO` em `js/config.js` para zerar o rodízio (o histórico continua).
-- Tipos de serviço, prioridades e pesos também ficam em `js/config.js`.
+- Tipos de serviço, prioridades, pesos, origens da demanda e motivos de encerramento sem execução também ficam em `js/config.js`. Ao incluir uma origem nova, acrescente o código dela também na lista de origens do `firestore.rules`.
 - Para editar qualquer arquivo, use o lápis ✏️ no próprio site do GitHub; o Pages publica sozinho em 1–2 minutos.
 - Mantenha sempre os dois responsáveis como administradores e passe o acesso à turma seguinte.
 
