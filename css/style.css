@@ -244,3 +244,11 @@ label.check input { width: auto; margin: 0; }
 .barra.alerta span { background: var(--ouro-esc); }
 .barra.critico span { background: var(--vermelho); }
 .aviso-armaz { display: flex; gap: 6px; align-items: flex-start; color: var(--vermelho); font-weight: 600; font-size: .9rem; }
+
+/* Zerar dados de teste */
+.zerar { border-top: 4px solid var(--vermelho); }
+.zerar .lista-zerar { max-height: 320px; overflow-y: auto; padding: 4px 12px; }
+.zerar .lista-zerar label.check { align-items: flex-start; border-bottom: 1px solid var(--borda); padding: 6px 0; margin: 0; }
+.zerar .lista-zerar label.check input { margin-top: 3px; }
+.zerar .lista-zerar span { display: flex; flex-direction: column; }
+.zerar .lista-zerar small { color: #6b7280; }
