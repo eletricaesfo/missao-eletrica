@@ -39,6 +39,22 @@ export const PRIORIDADES = [
   ["baixa", "Baixa"],
 ];
 
+// Como o problema chegou ao conhecimento da missão elétrica.
+// [código interno, nome exibido, complemento pedido no cadastro (null = nenhum)]
+// O código é o que fica gravado no banco: não altere os códigos já em uso.
+export const ORIGENS = [
+  ["proprio", "Constatado por integrante da missão", null],
+  ["terceiro", "Informado por cadete de fora da missão", "Quem informou (nome e turma)"],
+  ["dia_a_esfo", "Relatório do Dia-à-EsFO", "Data do relatório"],
+  ["outro", "Outro", "Especifique (ex.: pedido de oficial, servidor)"],
+];
+
+// Motivos para encerrar uma missão sem executar o serviço.
+export const MOTIVOS_SEM_EXEC = [
+  ["nao_constatado", "Problema não constatado (não existe)"],
+  ["ja_solucionado", "Problema já solucionado"],
+];
+
 export const PESOS = [
   [1, "1 · Simples (ex.: trocar lâmpada)"],
   [2, "2 · Média (ex.: trocar tomada)"],

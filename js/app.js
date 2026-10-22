@@ -14,6 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   firebaseConfig, CICLO_INICIO, HORAS_ALERTA_PAINEL, TIPOS, PRIORIDADES, PESOS,
+  ORIGENS, MOTIVOS_SEM_EXEC,
 } from "./config.js";
 import { ic } from "./icones.js";
 
@@ -51,8 +52,10 @@ const STATUS = {
   aguardando_material: "Aguardando material",
   concluida: "Aguardando validação",
   validada: "Validada",
+  sem_execucao: "Encerrada sem execução",
   arquivada: "Arquivada",
 };
+const FINAIS = ["validada", "sem_execucao", "arquivada"];
 const ABERTAS = ["painel", "em_execucao", "aguardando_material", "concluida"];
 const EM_ANDAMENTO = ["em_execucao", "aguardando_material", "concluida"];
 
@@ -70,6 +73,25 @@ const isCmd = () => S.me?.perfil === "comandante";
 const nomeDe = (email) => S.membros.find((m) => m.id === email)?.nome || email || "—";
 const prioNome = (p) => (PRIORIDADES.find(([k]) => k === p) || [p, p])[1];
 const H = (acao) => arrayUnion({ em: Date.now(), por: S.me.id, acao });
+
+// Origem da demanda (como o problema chegou à missão) e motivo do encerramento sem execução
+const origemNome = (k) => (ORIGENS.find(([c]) => c === k) || [k, k ? k : "Não informada"])[1];
+const origemTexto = (m) => {
+  if (!m.origem) return "Não informada";
+  const det = m.origem === "dia_a_esfo" && /^\d{4}-\d{2}-\d{2}$/.test(m.origemDetalhe || "")
+    ? fmtData(Date.parse(m.origemDetalhe + "T12:00:00")) : m.origemDetalhe;
+  return origemNome(m.origem) + (det ? ` — ${det}` : "");
+};
+const motivoNome = (k) => (MOTIVOS_SEM_EXEC.find(([c]) => c === k) || [k, k || "—"])[1];
+const FOTO_TIPO = { antes: "antes", depois: "depois", verificacao: "verificação" };
+
+// Campo complementar da origem (aparece conforme a opção escolhida no cadastro)
+function campoOrigem(cod) {
+  const o = ORIGENS.find(([c]) => c === cod);
+  if (!o || !o[2]) return "";
+  if (cod === "dia_a_esfo") return `<label>${esc(o[2])}*<input type="date" name="origemDetalhe" required value="${hojeISO()}" max="${hojeISO()}"></label>`;
+  return `<label>${esc(o[2])}*<input name="origemDetalhe" required maxlength="80"></label>`;
+}
 
 function toast(msg, erro) {
   const t = document.createElement("div");
@@ -145,7 +167,9 @@ function efetivo() {
       const andamento = minhas.filter((x) => EM_ANDAMENTO.includes(x.status)).length;
       const ultima = val.reduce((a, x) => Math.max(a, x.validadaEm || 0), 0);
       const indisp = !!m.indisponivelAte && Date.parse(m.indisponivelAte + "T23:59:59") >= agora;
-      return { ...m, pontos, concluidas: val.length, concluidasCiclo: val.filter((x) => (x.validadaEm || 0) >= ini).length, andamento, ultima, indisp };
+      // Encerradas sem execução não dão pontos no rodízio: são contadas à parte.
+      const semExec = minhas.filter((x) => x.status === "sem_execucao").length;
+      return { ...m, pontos, concluidas: val.length, concluidasCiclo: val.filter((x) => (x.validadaEm || 0) >= ini).length, andamento, ultima, indisp, semExec };
     })
     .sort((a, b) => (a.indisp - b.indisp) || (a.pontos - b.pontos) || (a.andamento - b.andamento)
       || String(a.nome).localeCompare(String(b.nome)));
@@ -219,7 +243,7 @@ function renderSemAcesso(email) {
 // Rotas e estrutura da tela
 // ---------------------------------------------------------------------
 window.addEventListener("hashchange", () => {
-  S.dirty = false; S.designar = null;
+  S.dirty = false; S.designar = null; S.semExec = null;
   route();
   window.scrollTo(0, 0);
 });
@@ -278,12 +302,14 @@ function ordenarMissoes(lista) {
 }
 
 function viewPainel() {
-  const abas = [["painel", "Painel"], ["em_execucao", "Execução"], ["aguardando_material", "Material"], ["concluida", "Validar"], ["validada", "Validadas"]];
+  const abas = [["painel", "Painel"], ["em_execucao", "Execução"], ["aguardando_material", "Material"], ["concluida", "Validar"], ["validada", "Validadas"], ["sem_execucao", "Sem execução"]];
   const tab = S.tab;
   let lista = S.missoes.filter((m) => m.status === tab && (!S.filtroTipo || m.tipo === S.filtroTipo));
   lista = tab === "validada"
     ? lista.sort((a, b) => (b.validadaEm || 0) - (a.validadaEm || 0)).slice(0, 50)
-    : ordenarMissoes(lista);
+    : tab === "sem_execucao"
+      ? lista.sort((a, b) => (b.semExecEm || 0) - (a.semExecEm || 0)).slice(0, 50)
+      : ordenarMissoes(lista);
   const vez = daVez();
   const paradas = S.missoes.filter((m) => m.status === "painel" && Date.now() - (m.criadaEm || 0) > HORAS_ALERTA_PAINEL * 3600e3);
   shell("Painel de Missões", `
@@ -304,6 +330,9 @@ function viewNova() {
       <label>O que está com problema?*<input name="titulo" required maxlength="80" placeholder="Ex.: lâmpada queimada no corredor"></label>
       <label>Local*<input name="local" required list="listaLocais" placeholder="Ex.: Bloco A – Alojamento 3">
         <datalist id="listaLocais">${S.locais.map((l) => `<option value="${esc(l.nome)}">`).join("")}</datalist></label>
+      <label>Como o problema chegou à missão?*<select name="origem" required>
+        <option value="" selected disabled>Selecione…</option>${opts(ORIGENS.map(([c, n]) => [c, n]))}</select></label>
+      <div id="origemDet"></div>
       <label>Tipo de serviço<select name="tipo">${opts(TIPOS)}</select></label>
       <div class="dupla">
         <label>Prioridade<select name="prioridade">${opts(PRIORIDADES, "media")}</select></label>
@@ -320,6 +349,10 @@ function viewNova() {
 async function salvarNova(f) {
   const d = Object.fromEntries(new FormData(f));
   const local = d.local.trim();
+  if (!ORIGENS.some(([c]) => c === d.origem)) return toast("Informe como o problema chegou à missão.", true);
+  const precisaDet = ORIGENS.find(([c]) => c === d.origem)[2];
+  const origemDetalhe = precisaDet ? String(d.origemDetalhe || "").trim() : "";
+  if (precisaDet && !origemDetalhe) return toast(`Preencha: ${precisaDet}.`, true);
   const abertas = S.missoes.filter((m) => ABERTAS.includes(m.status) && String(m.local).toLowerCase() === local.toLowerCase());
   if (abertas.length && !confirm(`Já existe(m) ${abertas.length} missão(ões) aberta(s) em "${local}":\n${abertas.map((m) => "• " + m.titulo).join("\n")}\n\nCadastrar mesmo assim?`)) return;
   const btn = f.querySelector("button"); btn.disabled = true; btn.textContent = "Salvando…";
@@ -332,6 +365,7 @@ async function salvarNova(f) {
       titulo: d.titulo.trim(), descricao: (d.descricao || "").trim(), local, tipo: d.tipo,
       prioridade: d.prioridade, peso: Number(d.peso) || 1, risco: !!d.risco,
       materiaisNecessarios: (d.materiais || "").trim(),
+      origem: d.origem, origemDetalhe,
       status: "painel", executor: null, criadoPor: S.me.id, criadaEm: agora,
       historico: [{ em: agora, por: S.me.id, acao: "Cadastrou a missão" }],
     });
@@ -351,7 +385,7 @@ function viewMissao(id) {
   const m = S.missoes.find((x) => x.id === id);
   if (!m) return shell("Missão", '<p class="vazio">Missão não encontrada.</p>', "painel");
   const souExec = m.executor === S.me.id;
-  const final = ["validada", "arquivada"].includes(m.status);
+  const final = FINAIS.includes(m.status);
   let acoes = "";
 
   if (m.status === "painel") {
@@ -372,6 +406,16 @@ function viewMissao(id) {
   }
   if (m.status === "aguardando_material" && (souExec || isCmd())) {
     acoes += `<button class="btn" data-act="retomar">${ic("retomar")} Material chegou — retomar</button>`;
+  }
+  // Executor encerra sem executar: problema não existe ou já foi solucionado.
+  if (souExec && ["em_execucao", "aguardando_material"].includes(m.status)) {
+    acoes += S.semExec === m.id
+      ? formSemExec()
+      : `<button class="btn sec" data-act="abrirSemExec">${ic("arquivar")} Encerrar sem execução</button>`;
+  }
+  // Responsável reabre uma missão encerrada sem execução (problema voltou ou verificação mal feita).
+  if (m.status === "sem_execucao" && isCmd()) {
+    acoes += `<button class="btn perigo" data-act="reabrir">${ic("retomar")} Reabrir missão (voltar ao painel)</button>`;
   }
   if (m.status === "concluida" && isCmd()) {
     acoes += `<button class="btn verde" data-act="validar">${ic("validar")} Validar conclusão</button>
@@ -396,6 +440,7 @@ function viewMissao(id) {
         <dt>Local</dt><dd>${esc(m.local)}</dd>
         <dt>Tipo</dt><dd>${esc(m.tipo)}</dd>
         <dt>Prioridade</dt><dd>${esc(prioNome(m.prioridade))} · peso ${Number(m.peso) || 1}</dd>
+        <dt>Origem</dt><dd>${esc(origemTexto(m))}</dd>
         <dt>Cadastrada</dt><dd>${esc(nomeDe(m.criadoPor))} em ${fmtDH(m.criadaEm)}</dd>
         <dt>Executor</dt><dd>${m.executor ? esc(nomeDe(m.executor)) + (m.designadoPor ? ` (designado por ${esc(nomeDe(m.designadoPor))})` : "") : "—"}</dd>
         ${m.materiaisNecessarios ? `<dt>Material previsto</dt><dd>${esc(m.materiaisNecessarios)}</dd>` : ""}
@@ -404,6 +449,9 @@ function viewMissao(id) {
         ${usados ? `<dt>Material usado</dt><dd>${usados}</dd>` : ""}
         ${m.obs ? `<dt>Observações</dt><dd>${esc(m.obs)}</dd>` : ""}
         ${m.validadaEm ? `<dt>Validada</dt><dd>${esc(nomeDe(m.validadoPor))} em ${fmtDH(m.validadaEm)}</dd>` : ""}
+        ${m.status === "sem_execucao" ? `<dt>Sem execução</dt><dd>${esc(motivoNome(m.motivoSemExec))}<br><small>${esc(nomeDe(m.semExecPor))} em ${fmtDH(m.semExecEm)}</small></dd>
+          ${m.solucionadoPor ? `<dt>Solucionado por</dt><dd>${esc(m.solucionadoPor)}</dd>` : ""}
+          ${m.semExecObs ? `<dt>Justificativa</dt><dd>${esc(m.semExecObs)}</dd>` : ""}` : ""}
       </dl>
       <h3>${ic("foto", "mini-ic")} Fotos</h3><div id="fotos" class="fotos"><p class="vazio">Carregando…</p></div>
       ${acoes ? `<div class="acoes">${acoes}</div>` : ""}
@@ -452,7 +500,7 @@ async function carregarFotos(id) {
   if (!el || S.cur !== id) return;
   const lista = S.fotos[id].filter((f) => String(f.img).startsWith("data:image/"));
   el.innerHTML = lista.length
-    ? lista.map((f) => `<figure><img src="${f.img}" loading="lazy" data-act="zoom" alt="Foto ${esc(f.tipo)}"><figcaption>${esc(f.tipo)} · ${fmtData(f.em)}</figcaption></figure>`).join("")
+    ? lista.map((f) => `<figure><img src="${f.img}" loading="lazy" data-act="zoom" alt="Foto ${esc(FOTO_TIPO[f.tipo] || f.tipo)}"><figcaption>${esc(FOTO_TIPO[f.tipo] || f.tipo)} · ${fmtData(f.em)}</figcaption></figure>`).join("")
     : (S.missoes.find((m) => m.id === id)?.fotosLimpasEm
       ? `<p class="vazio">Fotos removidas em ${fmtData(S.missoes.find((m) => m.id === id).fotosLimpasEm)} para liberar espaço (guardadas no backup baixado pelo responsável).</p>`
       : '<p class="vazio">Sem fotos.</p>');
@@ -503,6 +551,45 @@ async function concluir(f) {
   if (ok) { S.dirty = false; route(); } else { btn.disabled = false; btn.innerHTML = `${ic("concluir")} Concluir missão`; }
 }
 
+// Encerrar sem execução: o executor foi ao local e não havia serviço a fazer.
+// Exige motivo, justificativa e foto do local (prova de que está funcionando).
+function formSemExec() {
+  return `<form id="fSemExec" class="box sem-exec"><h3>${ic("arquivar", "mini-ic")} Encerrar sem execução</h3>
+    <p class="dica">Use quando, ao chegar no local, não houver serviço a fazer. A missão não conta pontos no rodízio e os responsáveis podem reabri-la.</p>
+    <label>Motivo*<select name="motivoSemExec" required>
+      <option value="" selected disabled>Selecione…</option>${opts(MOTIVOS_SEM_EXEC)}</select></label>
+    <div id="solDet"></div>
+    <label>Justificativa*<textarea name="semExecObs" rows="2" required maxlength="500" placeholder="Ex.: testei as 4 tomadas da sala, todas funcionando"></textarea></label>
+    <label>${ic("foto", "mini-ic")} Foto do local verificado*<input type="file" name="fotoVerif" accept="image/*" required></label>
+    <button class="btn">${ic("arquivar")} Confirmar encerramento</button>
+    <button type="button" class="btn sec" data-act="fecharSemExec">Cancelar</button>
+  </form>`;
+}
+
+async function salvarSemExec(f) {
+  const d = Object.fromEntries(new FormData(f));
+  if (!MOTIVOS_SEM_EXEC.some(([c]) => c === d.motivoSemExec)) return toast("Escolha o motivo.", true);
+  const obs = String(d.semExecObs || "").trim();
+  if (!obs) return toast("Escreva a justificativa.", true);
+  const file = f.fotoVerif.files[0];
+  if (!file) return toast("Tire ou escolha uma foto do local verificado.", true);
+  const sol = d.motivoSemExec === "ja_solucionado" ? String(d.solucionadoPor || "").trim() : "";
+  const btn = f.querySelector("button.btn:not(.sec)"); btn.disabled = true; btn.textContent = "Enviando…";
+  const id = S.cur;
+  const ok = await acao(async () => {
+    const img = await comprimir(file);
+    await addDoc(collection(db, "fotos"), { missaoId: id, tipo: "verificacao", img, tam: img.length, por: S.me.id, em: Date.now() });
+    await updateDoc(doc(db, "missoes", id), {
+      status: "sem_execucao", motivoSemExec: d.motivoSemExec, semExecObs: obs, solucionadoPor: sol,
+      semExecPor: S.me.id, semExecEm: Date.now(), motivoEspera: "",
+      historico: H(`Encerrou sem execução — ${motivoNome(d.motivoSemExec)}${sol ? " (por " + sol + ")" : ""}: ${obs}`),
+    });
+  }, "Missão encerrada sem execução");
+  delete S.fotos[id];
+  if (ok) { S.semExec = null; S.dirty = false; route(); }
+  else { btn.disabled = false; btn.innerHTML = `${ic("arquivar")} Confirmar encerramento`; }
+}
+
 // ---------------------------------------------------------------------
 // Minhas missões e Efetivo
 // ---------------------------------------------------------------------
@@ -512,12 +599,14 @@ function viewMinhas() {
   const and = ordenarMissoes(S.missoes.filter((m) => m.executor === eu && EM_ANDAMENTO.includes(m.status)));
   const cad = S.missoes.filter((m) => m.criadoPor === eu && ABERTAS.includes(m.status) && m.executor !== eu);
   const feitas = S.missoes.filter((m) => m.executor === eu && m.status === "validada").sort((a, b) => b.validadaEm - a.validadaEm);
+  const semExec = S.missoes.filter((m) => m.executor === eu && m.status === "sem_execucao").sort((a, b) => (b.semExecEm || 0) - (a.semExecEm || 0));
   shell("Minhas missões", `
     <div class="stats">
       <div>${ic("estrela")}<b>${meu.pontos}</b><small>pontos no ciclo</small></div>
       <div>${ic("concluir")}<b>${meu.concluidas}</b><small>concluídas</small></div>
       <div>${ic("capturar")}<b>${meu.andamento}</b><small>em andamento</small></div>
     </div>
+    ${semExec.length ? `<p class="dica">${semExec.length} missão(ões) encerrada(s) sem execução (não contam pontos no rodízio).</p>` : ""}
     <form id="fIndisp" class="box linha">
       <label>Indisponível até<input type="date" name="ate" value="${esc(S.me.indisponivelAte || "")}"></label>
       <button class="btn sec">${ic("salvar")} Salvar</button>
@@ -525,19 +614,20 @@ function viewMinhas() {
     <h3>Em andamento</h3>${and.length ? and.map(cartao).join("") : '<p class="vazio">Nenhuma.</p>'}
     <h3>Cadastradas por mim (abertas)</h3>${cad.length ? cad.map(cartao).join("") : '<p class="vazio">Nenhuma.</p>'}
     <h3>Concluídas e validadas</h3>${feitas.length ? feitas.slice(0, 30).map(cartao).join("") : '<p class="vazio">Nenhuma ainda.</p>'}
+    ${semExec.length ? `<h3>Encerradas sem execução</h3>${semExec.slice(0, 30).map(cartao).join("")}` : ""}
   `, "minhas");
 }
 
 function viewEfetivo() {
   const ef = efetivo();
   shell("Efetivo", `
-    <p class="dica">Ciclo desde ${fmtData(Date.parse(CICLO_INICIO + "T00:00:00"))}. A vez é de quem tem menos pontos; em empate, de quem tem menos missões em andamento.</p>
+    <p class="dica">Ciclo desde ${fmtData(Date.parse(CICLO_INICIO + "T00:00:00"))}. A vez é de quem tem menos pontos; em empate, de quem tem menos missões em andamento. S/E = encerradas sem execução (não contam pontos).</p>
     <table class="tab">
-      <tr><th>#</th><th>Cadete</th><th>Pts</th><th>Concl.</th><th>And.</th><th>Última</th></tr>
+      <tr><th>#</th><th>Cadete</th><th>Pts</th><th>Concl.</th><th>S/E</th><th>And.</th><th>Última</th></tr>
       ${ef.map((m, i) => `<tr class="${m.indisp ? "indisp" : ""}">
         <td>${m.indisp ? "—" : i + 1}</td>
         <td>${esc(m.nome)}${m.perfil === "comandante" ? ' <b class="tag">RESP</b>' : ""}${m.indisp ? `<br><small>indisponível até ${fmtData(Date.parse(m.indisponivelAte + "T12:00:00"))}</small>` : ""}</td>
-        <td><b>${m.pontos}</b></td><td>${m.concluidas}</td><td>${m.andamento}</td><td>${fmtData(m.ultima)}</td></tr>`).join("")}
+        <td><b>${m.pontos}</b></td><td>${m.concluidas}</td><td>${m.semExec}</td><td>${m.andamento}</td><td>${fmtData(m.ultima)}</td></tr>`).join("")}
     </table>`, "efetivo");
 }
 
@@ -712,6 +802,12 @@ function filtrarMateriais(texto) {
 // ---------------------------------------------------------------------
 // Relatórios
 // ---------------------------------------------------------------------
+function semExecNoPeriodo(ini, fim, cadete) {
+  return S.missoes
+    .filter((m) => m.status === "sem_execucao" && m.semExecEm >= ini && m.semExecEm <= fim && (!cadete || m.executor === cadete))
+    .sort((a, b) => a.semExecEm - b.semExecEm);
+}
+
 function viewRelatorios() {
   S.rel ||= { de: CICLO_INICIO, ate: hojeISO(), cadete: "" };
   const { de, ate, cadete } = S.rel;
@@ -722,6 +818,11 @@ function viewRelatorios() {
   const pontos = lista.reduce((a, m) => a + (Number(m.peso) || 1), 0);
   const porCadete = {};
   lista.forEach((m) => { porCadete[m.executor] = (porCadete[m.executor] || 0) + 1; });
+  const semExec = semExecNoPeriodo(ini, fim, cadete);
+  // Por origem: quantas demandas de cada canal foram resolvidas e quantas eram alarme falso
+  const porOrigem = {};
+  lista.forEach((m) => { (porOrigem[m.origem || ""] ||= { feitas: 0, sem: 0 }).feitas++; });
+  semExec.forEach((m) => { (porOrigem[m.origem || ""] ||= { feitas: 0, sem: 0 }).sem++; });
   shell("Relatórios", `
     <div class="filtros no-print">
       <label>De<input type="date" id="relDe" value="${esc(de)}"></label>
@@ -732,13 +833,22 @@ function viewRelatorios() {
       <div class="cab-rel"><img src="icons/apmg.png" alt=""><div><b>Academia Policial Militar do Guatupê · Escola de Formação de Oficiais</b><h2>Relatório de missões concluídas — Missão Elétrica</h2></div><img src="icons/esfo.png" alt=""></div>
       <p>Período: ${fmtData(ini)} a ${fmtData(fim)}${cadete ? " · Cadete: " + esc(nomeDe(cadete)) : ""} · ${lista.length} missões · ${pontos} pontos</p>
       ${!cadete && lista.length ? `<p><b>Por cadete:</b> ${Object.entries(porCadete).sort((a, b) => b[1] - a[1]).map(([e, n]) => `${esc(nomeDe(e))} (${n})`).join(", ")}</p>` : ""}
+      ${Object.keys(porOrigem).length ? `<p><b>Por origem:</b> ${Object.entries(porOrigem).sort((a, b) => (b[1].feitas + b[1].sem) - (a[1].feitas + a[1].sem))
+        .map(([o, n]) => `${esc(origemNome(o))} (${n.feitas} executada${n.feitas === 1 ? "" : "s"}${n.sem ? `, ${n.sem} sem execução` : ""})`).join("; ")}</p>` : ""}
       <table class="tab">
         <tr><th>Data</th><th>Missão</th><th>Local</th><th>Executor</th><th>Material usado</th></tr>
-        ${lista.map((m) => `<tr><td>${fmtData(m.validadaEm)}</td><td>${esc(m.titulo)}<br><small>${esc(m.tipo)} · peso ${Number(m.peso) || 1}</small></td>
+        ${lista.map((m) => `<tr><td>${fmtData(m.validadaEm)}</td><td>${esc(m.titulo)}<br><small>${esc(m.tipo)} · peso ${Number(m.peso) || 1} · origem: ${esc(origemTexto(m))}</small></td>
           <td>${esc(m.local)}</td><td>${esc(nomeDe(m.executor))}</td>
           <td>${(m.materiaisUsados || []).map((u) => `${u.qtd} ${esc(u.unidade)} ${esc(u.nome)}`).join(", ") || "—"}</td></tr>`).join("")}
       </table>
       ${lista.length ? "" : '<p class="vazio">Nenhuma missão validada no período.</p>'}
+      ${semExec.length ? `<h3>Encerradas sem execução (${semExec.length})</h3>
+      <table class="tab">
+        <tr><th>Data</th><th>Missão</th><th>Local</th><th>Executor</th><th>Motivo</th></tr>
+        ${semExec.map((m) => `<tr><td>${fmtData(m.semExecEm)}</td><td>${esc(m.titulo)}<br><small>origem: ${esc(origemTexto(m))}</small></td>
+          <td>${esc(m.local)}</td><td>${esc(nomeDe(m.executor))}</td>
+          <td>${esc(motivoNome(m.motivoSemExec))}${m.solucionadoPor ? ` (por ${esc(m.solucionadoPor)})` : ""}${m.semExecObs ? `<br><small>${esc(m.semExecObs)}</small>` : ""}</td></tr>`).join("")}
+      </table>` : ""}
     </div>
     <div class="linha no-print">
       <button class="btn" data-act="imprimir">${ic("imprimir")} Gerar PDF / Imprimir</button>
@@ -796,6 +906,7 @@ const fmtBytes = (b) => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(2) + " GB" : b 
 // Data em que a missão foi encerrada (validada ou arquivada)
 function encerradaEm(m) {
   if (m.validadaEm) return m.validadaEm;
+  if (m.status === "sem_execucao" && m.semExecEm) return m.semExecEm;
   const h = (m.historico || []).reduce((a, x) => Math.max(a, x.em || 0), 0);
   return h || m.criadaEm || 0;
 }
@@ -803,7 +914,7 @@ function encerradaEm(m) {
 // Missões cujas fotos já podem ser limpas
 function missoesParaLimpar() {
   const corte = new Date(); corte.setMonth(corte.getMonth() - MESES_FOTOS);
-  return S.missoes.filter((m) => ["validada", "arquivada"].includes(m.status) && encerradaEm(m) < corte.getTime());
+  return S.missoes.filter((m) => FINAIS.includes(m.status) && encerradaEm(m) < corte.getTime());
 }
 
 // Uso total, sem baixar as fotos (consultas de contagem/soma do Firestore)
@@ -849,7 +960,7 @@ async function carregarArmaz() {
       <p><b>${a.n}</b> fotos · <b>${fmtBytes(a.usado)}</b> de 1 GB (${a.pct.toFixed(1)}%)</p>
       <div class="barra ${cor}"><span style="width:${Math.max(a.pct, 0.5).toFixed(1)}%"></span></div>
       ${cor ? `<p class="aviso-armaz">${ic("alerta", "mini-ic")} Espaço ${a.pct >= 90 ? "quase esgotado" : "acima de " + ALERTA_PCT + "%"}. Faça a limpeza abaixo; se o limite for atingido, novas fotos deixam de ser gravadas.</p>` : ""}
-      <p class="dica">Fotos de missões validadas ou arquivadas há mais de ${MESES_FOTOS} meses podem ser limpas. Antes de apagar, o app baixa um arquivo .zip com as fotos e um relatório das missões — guarde-o no Drive da missão.</p>
+      <p class="dica">Fotos de missões validadas, encerradas sem execução ou arquivadas há mais de ${MESES_FOTOS} meses podem ser limpas. Antes de apagar, o app baixa um arquivo .zip com as fotos e um relatório das missões — guarde-o no Drive da missão.</p>
       ${ant.n
         ? `<p><b>${ant.n}</b> foto(s) antiga(s) de ${ant.missoes} missão(ões) encerrada(s) há mais de ${MESES_FOTOS} meses.</p>
            <button class="btn sec" data-act="limparFotos">${ic("exportar")} Baixar backup e limpar${ant.n > LOTE_LIMPEZA ? ` (${LOTE_LIMPEZA} por vez)` : ""}</button>`
@@ -922,7 +1033,7 @@ async function zerarDados(b) {
     const aba = (nome, linhas) => linhas.length && X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), nome);
     aba("Missões", missoes.map((m) => ({
       Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status, Prioridade: prioNome(m.prioridade),
-      Peso: Number(m.peso) || 1, "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtDH(m.criadaEm), Executor: nomeDe(m.executor),
+      Peso: Number(m.peso) || 1, Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtDH(m.criadaEm), Executor: nomeDe(m.executor),
       "Concluída em": fmtDH(m.concluidaEm), "Validada em": fmtDH(m.validadaEm), Descrição: m.descricao || "",
       "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "), Fotos: fotos.filter((f) => f.data().missaoId === m.id).length,
     })));
@@ -990,8 +1101,9 @@ async function limparFotos(b) {
   const linhas = [...missoesNoZip.values()].map(({ m, pasta }) => ({
     Pasta: pasta, Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status,
     "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtData(m.criadaEm), Executor: nomeDe(m.executor),
-    "Concluída em": fmtData(m.concluidaEm), "Encerrada em": fmtData(encerradaEm(m)), Descrição: m.descricao || "",
-    "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "), Observações: m.obs || "",
+    "Concluída em": fmtData(m.concluidaEm), "Encerrada em": fmtData(encerradaEm(m)), Origem: origemTexto(m), Descrição: m.descricao || "",
+    "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "),
+    Observações: m.status === "sem_execucao" ? `${motivoNome(m.motivoSemExec)}: ${m.semExecObs || ""}` : (m.obs || ""),
   }));
   const wb = X.utils.book_new();
   X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), "Missões");
@@ -1115,7 +1227,7 @@ async function baixarModelo(tipo) {
 
 async function exportar(tipo) {
   const X = await xlsx();
-  let linhas, nome;
+  let linhas, nome, extra = null;
   if (tipo === "compras") {
     linhas = S.compras.filter((c) => c.status !== "comprado").map((c) => ({
       Material: c.item, Quantidade: c.qtd, Unidade: c.unidade, Observação: c.obs || "", "Pedido por": nomeDe(c.criadoPor), Data: fmtData(c.em),
@@ -1133,14 +1245,20 @@ async function exportar(tipo) {
       .map((m) => ({
         "Validada em": fmtData(m.validadaEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local,
         Executor: nomeDe(m.executor), Peso: Number(m.peso) || 1, "Cadastrada por": nomeDe(m.criadoPor),
-        "Cadastrada em": fmtData(m.criadaEm), "Concluída em": fmtData(m.concluidaEm), "Tempo (min)": m.tempoMin || "",
+        "Cadastrada em": fmtData(m.criadaEm), Origem: origemTexto(m), "Concluída em": fmtData(m.concluidaEm), "Tempo (min)": m.tempoMin || "",
         "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "),
         Observações: m.obs || "",
       }));
+    extra = semExecNoPeriodo(ini, fim, cadete).map((m) => ({
+      "Encerrada em": fmtData(m.semExecEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local, Executor: nomeDe(m.executor),
+      Motivo: motivoNome(m.motivoSemExec), "Solucionado por": m.solucionadoPor || "", Justificativa: m.semExecObs || "",
+      Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtData(m.criadaEm),
+    }));
     nome = `relatorio-missoes-${de}-a-${ate}.xlsx`;
   }
   const wb = X.utils.book_new();
-  X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), "Dados");
+  X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), extra ? "Validadas" : "Dados");
+  if (extra?.length) X.utils.book_append_sheet(wb, X.utils.json_to_sheet(extra), "Sem execução");
   X.writeFile(wb, nome);
 }
 
@@ -1210,6 +1328,20 @@ const ACOES = {
     if (motivo === null) return;
     const txt = "Resgatou a missão de " + nomeDe(m.executor) + (motivo.trim() ? ": " + motivo.trim() : "");
     return upd({ status: "painel", executor: null, designadoPor: null, capturadaEm: null, motivoEspera: "", historico: H(txt) }, "Missão de volta ao painel");
+  },
+  abrirSemExec: () => { S.semExec = S.cur; S.dirty = true; route(); document.getElementById("fSemExec")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
+  fecharSemExec: () => { S.semExec = null; S.dirty = false; route(); },
+  reabrir: () => {
+    const m = S.missoes.find((x) => x.id === S.cur);
+    if (!m) return;
+    const motivo = prompt(`Reabrir a missão e devolvê-la ao painel?\n(Encerrada sem execução por ${nomeDe(m.semExecPor || m.executor)}: ${motivoNome(m.motivoSemExec)})\n\nMotivo da reabertura*:`);
+    if (motivo === null) return;
+    if (!motivo.trim()) return toast("Informe o motivo da reabertura.", true);
+    return upd({
+      status: "painel", executor: null, designadoPor: null, capturadaEm: null,
+      motivoSemExec: null, semExecObs: null, solucionadoPor: null, semExecPor: null, semExecEm: null,
+      historico: H("Reabriu a missão: " + motivo.trim()),
+    }, "Missão reaberta e de volta ao painel");
   },
   arquivar: () => confirm("Arquivar esta missão como duplicada?") && upd({ status: "arquivada", historico: H("Arquivou a missão (duplicada)") }, "Missão arquivada"),
   esperar: () => {
@@ -1305,6 +1437,7 @@ $app.addEventListener("click", async (e) => {
 const FORMS = {
   fNova: salvarNova,
   fConcluir: concluir,
+  fSemExec: salvarSemExec,
   fIndisp: (f) => acao(() => updateDoc(doc(db, "membros", S.me.id), { indisponivelAte: f.ate.value || null }),
     f.ate.value ? "Indisponibilidade registrada" : "Indisponibilidade removida").then(() => { S.dirty = false; }),
   fCompra: (f) => {
@@ -1356,6 +1489,11 @@ $app.addEventListener("input", (e) => {
 $app.addEventListener("change", async (e) => {
   const t = e.target;
   if (t.id === "filtroTipo") { S.filtroTipo = t.value; route(); }
+  else if (t.name === "origem" && t.form?.id === "fNova") document.getElementById("origemDet").innerHTML = campoOrigem(t.value);
+  else if (t.name === "motivoSemExec" && t.form?.id === "fSemExec") {
+    document.getElementById("solDet").innerHTML = t.value === "ja_solucionado"
+      ? `<label>Quem solucionou (se souber)<input name="solucionadoPor" maxlength="80" placeholder="Ex.: empresa terceirizada, outra missão"></label>` : "";
+  }
   else if (["relDe", "relAte", "relCadete"].includes(t.id)) {
     S.rel = { de: document.getElementById("relDe").value || CICLO_INICIO, ate: document.getElementById("relAte").value || hojeISO(), cadete: document.getElementById("relCadete").value };
     route();
