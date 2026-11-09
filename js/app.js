@@ -10,7 +10,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs,
   setDoc, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, writeBatch,
-  increment, arrayUnion, runTransaction, getCountFromServer, getAggregateFromServer, sum, count,
+  increment, arrayUnion, arrayRemove, runTransaction, getCountFromServer, getAggregateFromServer, sum, count,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   firebaseConfig, CICLO_INICIO, HORAS_ALERTA_PAINEL, TIPOS, PRIORIDADES, PESOS,
@@ -73,6 +73,14 @@ const isCmd = () => S.me?.perfil === "comandante";
 const nomeDe = (email) => S.membros.find((m) => m.id === email)?.nome || email || "—";
 const prioNome = (p) => (PRIORIDADES.find(([k]) => k === p) || [p, p])[1];
 const H = (acao) => arrayUnion({ em: Date.now(), por: S.me.id, acao });
+
+// Auxiliares: quem ajudou o executor na missão. Guarda o e-mail (integrante da missão)
+// ou o nome digitado (pessoa de fora da missão). nomeDe() resolve os dois casos.
+const MAX_AUX = 15;
+const auxDe = (m) => (Array.isArray(m?.auxiliares) ? m.auxiliares : []);
+const auxTexto = (m) => auxDe(m).map(nomeDe).join(", ");
+const participa = (m, email) => m.executor === email || auxDe(m).includes(email);
+const equipeTxt = (m) => nomeDe(m.executor) + (auxDe(m).length ? ` + ${auxTexto(m)}` : "");
 
 // Origem da demanda (como o problema chegou à missão) e motivo do encerramento sem execução
 const origemNome = (k) => (ORIGENS.find(([c]) => c === k) || [k, k ? k : "Não informada"])[1];
@@ -169,7 +177,9 @@ function efetivo() {
       const indisp = !!m.indisponivelAte && Date.parse(m.indisponivelAte + "T23:59:59") >= agora;
       // Encerradas sem execução não dão pontos no rodízio: são contadas à parte.
       const semExec = minhas.filter((x) => x.status === "sem_execucao").length;
-      return { ...m, pontos, concluidas: val.length, concluidasCiclo: val.filter((x) => (x.validadaEm || 0) >= ini).length, andamento, ultima, indisp, semExec };
+      // Participações como auxiliar (missões validadas): informativas, não somam pontos no rodízio.
+      const auxiliou = S.missoes.filter((x) => x.status === "validada" && auxDe(x).includes(m.id)).length;
+      return { ...m, pontos, concluidas: val.length, concluidasCiclo: val.filter((x) => (x.validadaEm || 0) >= ini).length, andamento, ultima, indisp, semExec, auxiliou };
     })
     .sort((a, b) => (a.indisp - b.indisp) || (a.pontos - b.pontos) || (a.andamento - b.andamento)
       || String(a.nome).localeCompare(String(b.nome)));
@@ -290,7 +300,7 @@ function cartao(m) {
       ${m.risco ? '<span class="badge risco">RISCO</span>' : ""}
       ${parada ? '<span class="badge parada">PARADA</span>' : ""}</div>
     <div class="meta">${ic("local", "mini-ic")} ${esc(m.local)} · ${esc(prioNome(m.prioridade))} · peso ${Number(m.peso) || 1}</div>
-    <div class="meta">${ic("usuario", "mini-ic")} ${m.executor ? "Executor: " + esc(nomeDe(m.executor)) : "Cadastrada por " + esc(nomeDe(m.criadoPor))} · ${fmtData(m.criadaEm)}</div>
+    <div class="meta">${ic("usuario", "mini-ic")} ${m.executor ? "Executor: " + esc(nomeDe(m.executor)) + (auxDe(m).length ? ` <b class="aux-n">+${auxDe(m).length}</b>` : "") : "Cadastrada por " + esc(nomeDe(m.criadoPor))} · ${fmtData(m.criadaEm)}</div>
   </div></a>`;
 }
 
@@ -400,6 +410,10 @@ function viewMissao(id) {
   if (isCmd() && ["em_execucao", "aguardando_material"].includes(m.status) && m.executor) {
     acoes += `<button class="btn perigo" data-act="resgatar">${ic("reprovar")} Resgatar missão (voltar ao painel)</button>`;
   }
+  // Auxiliares: o executor inclui/retira durante a execução; o responsável também até validar.
+  const podeAux = (souExec && ["em_execucao", "aguardando_material"].includes(m.status))
+    || (isCmd() && EM_ANDAMENTO.includes(m.status));
+  if (podeAux) acoes += formAux(m);
   if (m.status === "em_execucao" && (souExec || isCmd())) {
     acoes += `<button class="btn sec" data-act="esperar">${ic("esperar")} Aguardando material</button>`;
     if (souExec) acoes += formConcluir();
@@ -443,11 +457,12 @@ function viewMissao(id) {
         <dt>Origem</dt><dd>${esc(origemTexto(m))}</dd>
         <dt>Cadastrada</dt><dd>${esc(nomeDe(m.criadoPor))} em ${fmtDH(m.criadaEm)}</dd>
         <dt>Executor</dt><dd>${m.executor ? esc(nomeDe(m.executor)) + (m.designadoPor ? ` (designado por ${esc(nomeDe(m.designadoPor))})` : "") : "—"}</dd>
+        ${auxDe(m).length ? `<dt>Auxiliares</dt><dd>${esc(auxTexto(m))}</dd>` : ""}
         ${m.materiaisNecessarios ? `<dt>Material previsto</dt><dd>${esc(m.materiaisNecessarios)}</dd>` : ""}
         ${m.status === "aguardando_material" && m.motivoEspera ? `<dt>Falta</dt><dd>${esc(m.motivoEspera)}</dd>` : ""}
         ${m.concluidaEm ? `<dt>Concluída</dt><dd>${fmtDH(m.concluidaEm)}${m.tempoMin ? ` · ${m.tempoMin} min` : ""}</dd>` : ""}
         ${usados ? `<dt>Material usado</dt><dd>${usados}</dd>` : ""}
-        ${m.obs ? `<dt>Observações</dt><dd>${esc(m.obs)}</dd>` : ""}
+        ${m.obs ? `<dt>Serviço realizado</dt><dd class="obs">${esc(m.obs)}</dd>` : ""}
         ${m.validadaEm ? `<dt>Validada</dt><dd>${esc(nomeDe(m.validadoPor))} em ${fmtDH(m.validadaEm)}</dd>` : ""}
         ${m.status === "sem_execucao" ? `<dt>Sem execução</dt><dd>${esc(motivoNome(m.motivoSemExec))}<br><small>${esc(nomeDe(m.semExecPor))} em ${fmtDH(m.semExecEm)}</small></dd>
           ${m.solucionadoPor ? `<dt>Solucionado por</dt><dd>${esc(m.solucionadoPor)}</dd>` : ""}
@@ -506,19 +521,49 @@ async function carregarFotos(id) {
       : '<p class="vazio">Sem fotos.</p>');
 }
 
+function formAux(m) {
+  const aux = auxDe(m);
+  const livres = S.membros.filter((x) => x.ativo !== false && x.id !== m.executor && !aux.includes(x.id));
+  return `<form id="fAux" class="box"><h3>${ic("efetivo", "mini-ic")} Auxiliares</h3>
+    <p class="dica">Quem ajudou ${esc(nomeDe(m.executor))} a executar esta missão. Os pontos do rodízio continuam só com o executor; as participações como auxiliar ficam registradas no Efetivo e nos relatórios.</p>
+    ${aux.length ? `<div class="chips">${aux.map((a) => `<span class="chip">${esc(nomeDe(a))}
+      <button type="button" class="chip-x" data-act="remAux" data-v="${esc(a)}" title="Retirar" aria-label="Retirar ${esc(nomeDe(a))}">×</button></span>`).join("")}</div>`
+      : '<p class="vazio">Nenhum auxiliar.</p>'}
+    ${aux.length < MAX_AUX ? `<div class="linha aux-add">
+      <select name="aux" id="auxSel"><option value="">Incluir auxiliar…</option>${opts(livres.map((x) => [x.id, x.nome]))}<option value="__outro">Outra pessoa (fora da missão)…</option></select>
+      <button class="btn sec">${ic("nova")} Incluir</button></div>
+    <label id="auxNomeL" hidden>Nome de quem ajudou*<input name="auxNome" maxlength="60" placeholder="Ex.: Sd. Fulano (manutenção)"></label>` : ""}
+  </form>`;
+}
+
+async function salvarAux(f) {
+  const m = S.missoes.find((x) => x.id === S.cur);
+  if (!m) return;
+  let v = f.aux.value;
+  if (v === "__outro") v = String(f.auxNome?.value || "").trim().replace(/\s+/g, " ");
+  if (!v) return toast(f.aux.value === "__outro" ? "Digite o nome de quem ajudou." : "Escolha quem ajudou.", true);
+  if (v === m.executor || auxDe(m).some((a) => a === v || nomeDe(a).toLowerCase() === v.toLowerCase())) return toast("Essa pessoa já está na equipe da missão.", true);
+  const ok = await upd({ auxiliares: arrayUnion(v), historico: H("Incluiu auxiliar: " + nomeDe(v)) }, nomeDe(v) + " incluído como auxiliar");
+  if (ok) { S.dirty = false; route(); }
+}
+
 function formConcluir() {
+  const m = S.missoes.find((x) => x.id === S.cur);
   return `<form id="fConcluir" class="box destaque"><h3>${ic("concluir", "mini-ic")} Concluir missão</h3>
+    <p class="dica">Equipe: <b>${esc(m ? equipeTxt(m) : "")}</b>${m && !auxDe(m).length ? " (sem auxiliares — inclua acima se alguém ajudou)" : ""}</p>
     <label>${ic("foto", "mini-ic")} Fotos do serviço concluído<input type="file" name="fotosDepois" accept="image/*" multiple></label>
     <div id="usados"></div>
     <button type="button" class="btn sec" data-act="addUsado">${ic("materiais")} Material usado</button>
     <label>Tempo gasto (min)<input type="number" name="tempo" min="0" inputmode="numeric"></label>
-    <label>Observações<textarea name="obs" rows="2"></textarea></label>
+    <label>Serviço realizado / observações*<textarea name="obs" rows="3" required minlength="5" maxlength="1000"
+      placeholder="Descreva o que foi feito. Ex.: troquei o reator e as 2 lâmpadas da luminária; testado e funcionando."></textarea></label>
     <button class="btn verde">${ic("concluir")} Concluir missão</button>
   </form>`;
 }
 
 async function concluir(f) {
   const files = [...f.fotosDepois.files];
+  if (f.obs.value.trim().length < 5) return toast("Descreva o serviço realizado (observações).", true);
   if (!files.length && !confirm("Concluir sem foto de depois?")) return;
   const usados = [...f.querySelectorAll(".usado")]
     .map((r) => ({ id: r.querySelector("select").value, qtd: Number(r.querySelector("input").value) }))
@@ -600,6 +645,8 @@ function viewMinhas() {
   const cad = S.missoes.filter((m) => m.criadoPor === eu && ABERTAS.includes(m.status) && m.executor !== eu);
   const feitas = S.missoes.filter((m) => m.executor === eu && m.status === "validada").sort((a, b) => b.validadaEm - a.validadaEm);
   const semExec = S.missoes.filter((m) => m.executor === eu && m.status === "sem_execucao").sort((a, b) => (b.semExecEm || 0) - (a.semExecEm || 0));
+  const comoAux = S.missoes.filter((m) => auxDe(m).includes(eu) && (EM_ANDAMENTO.includes(m.status) || m.status === "validada"))
+    .sort((a, b) => (EM_ANDAMENTO.includes(b.status) - EM_ANDAMENTO.includes(a.status)) || ((b.validadaEm || 0) - (a.validadaEm || 0)));
   shell("Minhas missões", `
     <div class="stats">
       <div>${ic("estrela")}<b>${meu.pontos}</b><small>pontos no ciclo</small></div>
@@ -607,6 +654,7 @@ function viewMinhas() {
       <div>${ic("capturar")}<b>${meu.andamento}</b><small>em andamento</small></div>
     </div>
     ${semExec.length ? `<p class="dica">${semExec.length} missão(ões) encerrada(s) sem execução (não contam pontos no rodízio).</p>` : ""}
+    ${meu.auxiliou ? `<p class="dica">${meu.auxiliou} missão(ões) validada(s) como auxiliar.</p>` : ""}
     <form id="fIndisp" class="box linha">
       <label>Indisponível até<input type="date" name="ate" value="${esc(S.me.indisponivelAte || "")}"></label>
       <button class="btn sec">${ic("salvar")} Salvar</button>
@@ -614,6 +662,7 @@ function viewMinhas() {
     <h3>Em andamento</h3>${and.length ? and.map(cartao).join("") : '<p class="vazio">Nenhuma.</p>'}
     <h3>Cadastradas por mim (abertas)</h3>${cad.length ? cad.map(cartao).join("") : '<p class="vazio">Nenhuma.</p>'}
     <h3>Concluídas e validadas</h3>${feitas.length ? feitas.slice(0, 30).map(cartao).join("") : '<p class="vazio">Nenhuma ainda.</p>'}
+    ${comoAux.length ? `<h3>Como auxiliar</h3>${comoAux.slice(0, 30).map(cartao).join("")}` : ""}
     ${semExec.length ? `<h3>Encerradas sem execução</h3>${semExec.slice(0, 30).map(cartao).join("")}` : ""}
   `, "minhas");
 }
@@ -624,13 +673,13 @@ function viewEfetivo() {
   const ef = efetivo().map((m, i) => ({ ...m, pos: m.indisp ? null : i + 1 }));
   const resp = ef.filter((m) => m.perfil === "comandante");
   const cads = ef.filter((m) => m.perfil !== "comandante");
-  const cab = (titulo) => `<tr><th>#</th><th>${titulo}</th><th>Pts</th><th>Concl.</th><th>S/E</th><th>And.</th><th>Última</th></tr>`;
+  const cab = (titulo) => `<tr><th>#</th><th>${titulo}</th><th>Pts</th><th>Concl.</th><th>Aux.</th><th>S/E</th><th>And.</th><th>Última</th></tr>`;
   const linha = (m) => `<tr class="${m.indisp ? "indisp" : ""}">
     <td>${m.pos ?? "—"}</td>
     <td>${esc(m.nome)}${m.indisp ? `<br><small>indisponível até ${fmtData(Date.parse(m.indisponivelAte + "T12:00:00"))}</small>` : ""}</td>
-    <td><b>${m.pontos}</b></td><td>${m.concluidas}</td><td>${m.semExec}</td><td>${m.andamento}</td><td>${fmtData(m.ultima)}</td></tr>`;
+    <td><b>${m.pontos}</b></td><td>${m.concluidas}</td><td>${m.auxiliou}</td><td>${m.semExec}</td><td>${m.andamento}</td><td>${fmtData(m.ultima)}</td></tr>`;
   shell("Efetivo", `
-    <p class="dica">Ciclo desde ${fmtData(Date.parse(CICLO_INICIO + "T00:00:00"))}. A vez é de quem tem menos pontos; em empate, de quem tem menos missões em andamento. O # é a posição no rodízio geral (responsáveis e cadetes juntos). S/E = encerradas sem execução (não contam pontos).</p>
+    <p class="dica">Ciclo desde ${fmtData(Date.parse(CICLO_INICIO + "T00:00:00"))}. A vez é de quem tem menos pontos; em empate, de quem tem menos missões em andamento. O # é a posição no rodízio geral (responsáveis e cadetes juntos). Aux. = missões validadas em que ajudou como auxiliar (não contam pontos). S/E = encerradas sem execução (não contam pontos).</p>
     <h3>${ic("estrela", "mini-ic")} Responsáveis (${resp.length})</h3>
     ${resp.length ? `<table class="tab tab-resp">${cab("Responsável")}${resp.map(linha).join("")}</table>` : '<p class="vazio">Nenhum responsável ativo.</p>'}
     <h3>${ic("efetivo", "mini-ic")} Cadetes (${cads.length})</h3>
@@ -836,20 +885,31 @@ function filtrarMateriais(texto) {
 // ---------------------------------------------------------------------
 function semExecNoPeriodo(ini, fim, cadete) {
   return S.missoes
-    .filter((m) => m.status === "sem_execucao" && m.semExecEm >= ini && m.semExecEm <= fim && (!cadete || m.executor === cadete))
+    .filter((m) => m.status === "sem_execucao" && m.semExecEm >= ini && m.semExecEm <= fim && (!cadete || participa(m, cadete)))
     .sort((a, b) => a.semExecEm - b.semExecEm);
+}
+
+// Missões validadas no período; com cadete escolhido, entram as que ele executou ou auxiliou.
+function validadasNoPeriodo(ini, fim, cadete) {
+  return S.missoes
+    .filter((m) => m.status === "validada" && m.validadaEm >= ini && m.validadaEm <= fim && (!cadete || participa(m, cadete)))
+    .sort((a, b) => a.validadaEm - b.validadaEm);
 }
 
 function viewRelatorios() {
   S.rel ||= { de: CICLO_INICIO, ate: hojeISO(), cadete: "" };
   const { de, ate, cadete } = S.rel;
   const ini = Date.parse(de + "T00:00:00"), fim = Date.parse(ate + "T23:59:59");
-  const lista = S.missoes
-    .filter((m) => m.status === "validada" && m.validadaEm >= ini && m.validadaEm <= fim && (!cadete || m.executor === cadete))
-    .sort((a, b) => a.validadaEm - b.validadaEm);
-  const pontos = lista.reduce((a, m) => a + (Number(m.peso) || 1), 0);
+  const lista = validadasNoPeriodo(ini, fim, cadete);
+  // Pontos só para o executor (auxiliar não pontua no rodízio).
+  const comoExec = cadete ? lista.filter((m) => m.executor === cadete) : lista;
+  const pontos = comoExec.reduce((a, m) => a + (Number(m.peso) || 1), 0);
+  const nAux = lista.length - comoExec.length;
   const porCadete = {};
-  lista.forEach((m) => { porCadete[m.executor] = (porCadete[m.executor] || 0) + 1; });
+  lista.forEach((m) => {
+    (porCadete[m.executor] ||= { e: 0, a: 0 }).e++;
+    auxDe(m).forEach((x) => { (porCadete[x] ||= { e: 0, a: 0 }).a++; });
+  });
   const semExec = semExecNoPeriodo(ini, fim, cadete);
   // Por origem: quantas demandas de cada canal foram resolvidas e quantas eram alarme falso
   const porOrigem = {};
@@ -863,22 +923,27 @@ function viewRelatorios() {
     </div>
     <div class="impresso">
       <div class="cab-rel"><img src="icons/apmg.png" alt=""><div><b>Academia Policial Militar do Guatupê · Escola de Formação de Oficiais</b><h2>Relatório de missões concluídas — Missão Elétrica</h2></div><img src="icons/esfo.png" alt=""></div>
-      <p>Período: ${fmtData(ini)} a ${fmtData(fim)}${cadete ? " · Cadete: " + esc(nomeDe(cadete)) : ""} · ${lista.length} missões · ${pontos} pontos</p>
-      ${!cadete && lista.length ? `<p><b>Por cadete:</b> ${Object.entries(porCadete).sort((a, b) => b[1] - a[1]).map(([e, n]) => `${esc(nomeDe(e))} (${n})`).join(", ")}</p>` : ""}
+      <p>Período: ${fmtData(ini)} a ${fmtData(fim)}${cadete ? " · Cadete: " + esc(nomeDe(cadete)) : ""} · ${cadete ? `${comoExec.length} como executor (${pontos} pontos)${nAux ? ` · ${nAux} como auxiliar` : ""}` : `${lista.length} missões · ${pontos} pontos`}</p>
+      ${!cadete && lista.length ? `<p><b>Por cadete:</b> ${Object.entries(porCadete).sort((a, b) => (b[1].e - a[1].e) || (b[1].a - a[1].a))
+        .map(([e, n]) => `${esc(nomeDe(e))} (${n.e}${n.a ? `${n.e ? ", " : ""}${n.a} como aux.` : ""})`).join(", ")}</p>` : ""}
       ${Object.keys(porOrigem).length ? `<p><b>Por origem:</b> ${Object.entries(porOrigem).sort((a, b) => (b[1].feitas + b[1].sem) - (a[1].feitas + a[1].sem))
         .map(([o, n]) => `${esc(origemNome(o))} (${n.feitas} executada${n.feitas === 1 ? "" : "s"}${n.sem ? `, ${n.sem} sem execução` : ""})`).join("; ")}</p>` : ""}
       <table class="tab">
-        <tr><th>Data</th><th>Missão</th><th>Local</th><th>Executor</th><th>Material usado</th></tr>
-        ${lista.map((m) => `<tr><td>${fmtData(m.validadaEm)}</td><td>${esc(m.titulo)}<br><small>${esc(m.tipo)} · peso ${Number(m.peso) || 1} · origem: ${esc(origemTexto(m))}</small></td>
-          <td>${esc(m.local)}</td><td>${esc(nomeDe(m.executor))}</td>
-          <td>${(m.materiaisUsados || []).map((u) => `${u.qtd} ${esc(u.unidade)} ${esc(u.nome)}`).join(", ") || "—"}</td></tr>`).join("")}
+        <tr><th>Data</th><th>Missão</th><th>Local</th><th>Equipe</th><th>Serviço realizado</th></tr>
+        ${lista.map((m) => {
+          const mat = (m.materiaisUsados || []).map((u) => `${u.qtd} ${esc(u.unidade)} ${esc(u.nome)}`).join(", ");
+          return `<tr><td>${fmtData(m.validadaEm)}</td><td>${esc(m.titulo)}<br><small>${esc(m.tipo)} · peso ${Number(m.peso) || 1} · origem: ${esc(origemTexto(m))}</small></td>
+          <td>${esc(m.local)}</td>
+          <td><b>${esc(nomeDe(m.executor))}</b>${auxDe(m).length ? `<br><small>Aux.: ${esc(auxTexto(m))}</small>` : ""}</td>
+          <td class="obs">${m.obs ? esc(m.obs) : "—"}${mat ? `<br><small>Material: ${mat}</small>` : ""}${m.tempoMin ? `<br><small>Tempo: ${m.tempoMin} min</small>` : ""}</td></tr>`;
+        }).join("")}
       </table>
       ${lista.length ? "" : '<p class="vazio">Nenhuma missão validada no período.</p>'}
       ${semExec.length ? `<h3>Encerradas sem execução (${semExec.length})</h3>
       <table class="tab">
         <tr><th>Data</th><th>Missão</th><th>Local</th><th>Executor</th><th>Motivo</th></tr>
         ${semExec.map((m) => `<tr><td>${fmtData(m.semExecEm)}</td><td>${esc(m.titulo)}<br><small>origem: ${esc(origemTexto(m))}</small></td>
-          <td>${esc(m.local)}</td><td>${esc(nomeDe(m.executor))}</td>
+          <td>${esc(m.local)}</td><td>${esc(nomeDe(m.executor))}${auxDe(m).length ? `<br><small>Aux.: ${esc(auxTexto(m))}</small>` : ""}</td>
           <td>${esc(motivoNome(m.motivoSemExec))}${m.solucionadoPor ? ` (por ${esc(m.solucionadoPor)})` : ""}${m.semExecObs ? `<br><small>${esc(m.semExecObs)}</small>` : ""}</td></tr>`).join("")}
       </table>` : ""}
     </div>
@@ -1080,8 +1145,8 @@ async function zerarDados(b) {
       const aba = (nome, linhas) => linhas.length && X.utils.book_append_sheet(wb, X.utils.json_to_sheet(linhas), nome);
       aba("Missões", missoes.map((m) => ({
         Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status, Prioridade: prioNome(m.prioridade),
-        Peso: Number(m.peso) || 1, Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtDH(m.criadaEm), Executor: nomeDe(m.executor),
-        "Concluída em": fmtDH(m.concluidaEm), "Validada em": fmtDH(m.validadaEm), Descrição: m.descricao || "",
+        Peso: Number(m.peso) || 1, Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtDH(m.criadaEm), Executor: nomeDe(m.executor), Auxiliares: auxTexto(m),
+        "Concluída em": fmtDH(m.concluidaEm), "Validada em": fmtDH(m.validadaEm), Descrição: m.descricao || "", "Serviço realizado": m.obs || "",
         "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "), Fotos: fotos.filter((f) => f.data().missaoId === m.id).length,
       })));
       if (estoque) {
@@ -1148,7 +1213,7 @@ async function limparFotos(b) {
   }
   const linhas = [...missoesNoZip.values()].map(({ m, pasta }) => ({
     Pasta: pasta, Missão: m.titulo, Tipo: m.tipo, Local: m.local, Situação: STATUS[m.status] || m.status,
-    "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtData(m.criadaEm), Executor: nomeDe(m.executor),
+    "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtData(m.criadaEm), Executor: nomeDe(m.executor), Auxiliares: auxTexto(m),
     "Concluída em": fmtData(m.concluidaEm), "Encerrada em": fmtData(encerradaEm(m)), Origem: origemTexto(m), Descrição: m.descricao || "",
     "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "),
     Observações: m.status === "sem_execucao" ? `${motivoNome(m.motivoSemExec)}: ${m.semExecObs || ""}` : (m.obs || ""),
@@ -1304,18 +1369,16 @@ async function exportar(tipo) {
   } else {
     const { de, ate, cadete } = S.rel;
     const ini = Date.parse(de + "T00:00:00"), fim = Date.parse(ate + "T23:59:59");
-    linhas = S.missoes
-      .filter((m) => m.status === "validada" && m.validadaEm >= ini && m.validadaEm <= fim && (!cadete || m.executor === cadete))
-      .sort((a, b) => a.validadaEm - b.validadaEm)
+    linhas = validadasNoPeriodo(ini, fim, cadete)
       .map((m) => ({
         "Validada em": fmtData(m.validadaEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local,
-        Executor: nomeDe(m.executor), Peso: Number(m.peso) || 1, "Cadastrada por": nomeDe(m.criadoPor),
+        Executor: nomeDe(m.executor), Auxiliares: auxTexto(m), Peso: Number(m.peso) || 1, "Cadastrada por": nomeDe(m.criadoPor),
         "Cadastrada em": fmtData(m.criadaEm), Origem: origemTexto(m), "Concluída em": fmtData(m.concluidaEm), "Tempo (min)": m.tempoMin || "",
         "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "),
-        Observações: m.obs || "",
+        "Serviço realizado / observações": m.obs || "",
       }));
     extra = semExecNoPeriodo(ini, fim, cadete).map((m) => ({
-      "Encerrada em": fmtData(m.semExecEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local, Executor: nomeDe(m.executor),
+      "Encerrada em": fmtData(m.semExecEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local, Executor: nomeDe(m.executor), Auxiliares: auxTexto(m),
       Motivo: motivoNome(m.motivoSemExec), "Solucionado por": m.solucionadoPor || "", Justificativa: m.semExecObs || "",
       Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtData(m.criadaEm),
     }));
@@ -1392,7 +1455,7 @@ const ACOES = {
     const motivo = prompt(`Resgatar a missão de ${nomeDe(m.executor)} e devolvê-la ao painel?\n\nMotivo (opcional):`);
     if (motivo === null) return;
     const txt = "Resgatou a missão de " + nomeDe(m.executor) + (motivo.trim() ? ": " + motivo.trim() : "");
-    return upd({ status: "painel", executor: null, designadoPor: null, capturadaEm: null, motivoEspera: "", historico: H(txt) }, "Missão de volta ao painel");
+    return upd({ status: "painel", executor: null, auxiliares: [], designadoPor: null, capturadaEm: null, motivoEspera: "", historico: H(txt) }, "Missão de volta ao painel");
   },
   abrirSemExec: () => { S.semExec = S.cur; S.dirty = true; route(); document.getElementById("fSemExec")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
   fecharSemExec: () => { S.semExec = null; S.dirty = false; route(); },
@@ -1403,7 +1466,7 @@ const ACOES = {
     if (motivo === null) return;
     if (!motivo.trim()) return toast("Informe o motivo da reabertura.", true);
     return upd({
-      status: "painel", executor: null, designadoPor: null, capturadaEm: null,
+      status: "painel", executor: null, auxiliares: [], designadoPor: null, capturadaEm: null,
       motivoSemExec: null, semExecObs: null, solucionadoPor: null, semExecPor: null, semExecEm: null,
       historico: H("Reabriu a missão: " + motivo.trim()),
     }, "Missão reaberta e de volta ao painel");
@@ -1426,6 +1489,11 @@ const ACOES = {
     peso: Number(document.getElementById("cmdPeso").value) || 1,
     historico: H("Ajustou prioridade/peso"),
   }, "Ajustes salvos"),
+  remAux: (b) => {
+    const v = b.dataset.v;
+    if (!confirm(`Retirar ${nomeDe(v)} dos auxiliares desta missão?`)) return;
+    return upd({ auxiliares: arrayRemove(v), historico: H("Retirou auxiliar: " + nomeDe(v)) }, "Auxiliar retirado");
+  },
   addUsado: () => {
     S.dirty = true;
     const div = document.createElement("div");
@@ -1549,6 +1617,7 @@ $app.addEventListener("click", async (e) => {
 const FORMS = {
   fNova: salvarNova,
   fConcluir: concluir,
+  fAux: salvarAux,
   fSemExec: salvarSemExec,
   fIndisp: (f) => acao(() => updateDoc(doc(db, "membros", S.me.id), { indisponivelAte: f.ate.value || null }),
     f.ate.value ? "Indisponibilidade registrada" : "Indisponibilidade removida").then(() => { S.dirty = false; }),
@@ -1601,6 +1670,11 @@ $app.addEventListener("input", (e) => {
 $app.addEventListener("change", async (e) => {
   const t = e.target;
   if (t.id === "filtroTipo") { S.filtroTipo = t.value; route(); }
+  else if (t.id === "auxSel") {
+    const outro = t.value === "__outro";
+    const l = document.getElementById("auxNomeL");
+    if (l) { l.hidden = !outro; l.querySelector("input").required = outro; if (outro) l.querySelector("input").focus(); }
+  }
   else if (t.name === "origem" && t.form?.id === "fNova") document.getElementById("origemDet").innerHTML = campoOrigem(t.value);
   else if (t.name === "motivoSemExec" && t.form?.id === "fSemExec") {
     document.getElementById("solDet").innerHTML = t.value === "ja_solucionado"
