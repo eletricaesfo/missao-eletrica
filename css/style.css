@@ -299,3 +299,14 @@ label.check input { width: auto; margin: 0; }
 
 /* Importar lista de compras */
 .imp-compras > .box { margin: 0; border: 0; border-top: 1px solid var(--borda); border-radius: 0; }
+
+/* Auxiliares da missão */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: #eef3fb; border: 1px solid var(--borda); color: var(--azul);
+  border-radius: 999px; padding: 4px 4px 4px 12px; font-size: .9rem; font-weight: 600; }
+.chip-x { border: 0; background: transparent; color: var(--suave); font-size: 1.15rem; line-height: 1; width: 26px; height: 26px;
+  border-radius: 50%; cursor: pointer; }
+.chip-x:hover { background: #fde8e8; color: #b42318; }
+.aux-add select { flex: 1; min-width: 0; }
+.aux-n { font-size: .78rem; background: var(--ouro); color: var(--azul-esc); border-radius: 999px; padding: 0 6px; }
+dd.obs, td.obs { white-space: pre-line; }
