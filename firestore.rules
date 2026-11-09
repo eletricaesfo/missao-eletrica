@@ -46,12 +46,16 @@ service cloud.firestore {
             && request.resource.data.status == 'em_execucao'
             && mudaSo(['status', 'executor', 'capturadaEm', 'historico']))
         // Execução: só o executor, sem trocar o executor e sem validar.
+        // O executor também inclui/retira auxiliares (até 15, sem incluir a si mesmo).
         || (membro()
             && resource.data.executor == email()
             && request.resource.data.executor == email()
             && resource.data.status in ['em_execucao', 'aguardando_material']
             && request.resource.data.status in ['em_execucao', 'aguardando_material', 'concluida']
-            && mudaSo(['status', 'concluidaEm', 'obs', 'tempoMin', 'materiaisUsados', 'historico', 'motivoEspera']))
+            && request.resource.data.get('auxiliares', []) is list
+            && request.resource.data.get('auxiliares', []).size() <= 15
+            && !(email() in request.resource.data.get('auxiliares', []))
+            && mudaSo(['status', 'concluidaEm', 'obs', 'tempoMin', 'materiaisUsados', 'historico', 'motivoEspera', 'auxiliares']))
         // Encerrar sem execução: só o executor, com motivo e justificativa.
         // Reabrir fica só com os responsáveis (coberto por comandante()).
         || (membro()
