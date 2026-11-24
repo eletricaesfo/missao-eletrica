@@ -39,6 +39,7 @@ Os demais integrantes e o segundo responsável são incluídos pelo próprio app
 4. No Firebase, **Authentication › Settings › Authorized domains**: adicione `SEU-USUARIO.github.io`.
 
 ## Manutenção
+- A cada atualização publicada, aumente `VERSAO` em `js/config.js` e use o mesmo número no `CACHE` do `sw.js` (é o que faz os celulares atualizarem). A versão e o desenvolvedor aparecem na tela de entrada e em Mais › Sobre o app.
 - Novo semestre: altere `CICLO_INICIO` em `js/config.js` para zerar o rodízio (o histórico continua).
 - Tipos de serviço, prioridades, pesos, origens da demanda e motivos de encerramento sem execução também ficam em `js/config.js`. Ao incluir uma origem nova, acrescente o código dela também na lista de origens do `firestore.rules`.
 - Para editar qualquer arquivo, use o lápis ✏️ no próprio site do GitHub; o Pages publica sozinho em 1–2 minutos.
