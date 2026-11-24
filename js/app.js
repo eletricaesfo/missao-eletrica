@@ -14,7 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   firebaseConfig, CICLO_INICIO, HORAS_ALERTA_PAINEL, TIPOS, PRIORIDADES, PESOS,
-  ORIGENS, MOTIVOS_SEM_EXEC, TEXTO_COMPRAS,
+  ORIGENS, MOTIVOS_SEM_EXEC, TEXTO_COMPRAS, VERSAO, DESENVOLVEDOR,
 } from "./config.js";
 import { ic } from "./icones.js";
 
@@ -235,6 +235,7 @@ function renderLogin() {
     <h1>Gestão de Manutenção Elétrica</h1>
     <p>Escola de Formação de Oficiais · Academia Policial Militar do Guatupê</p>
     <button class="btn ouro" data-act="entrar">${ic("usuario")} Entrar com Google</button>
+    <p class="versao">Versão ${esc(VERSAO)} · Desenvolvido por ${esc(DESENVOLVEDOR)}</p>
   </div>`;
 }
 
@@ -706,6 +707,12 @@ function viewMais() {
       <button class="link" data-act="sair">${ic("sair")}<span>Sair<small>${esc(S.me.id)}</small></span></button>
     </div>
     <p class="dica">Para instalar no celular: no Chrome (Android), menu ⋮ › "Instalar app"; no Safari (iPhone), Compartilhar › "Adicionar à Tela de Início".</p>
+    <div class="box sobre">
+      <h3>${ic("raio", "mini-ic")} Sobre o app</h3>
+      <p><b>Missão Elétrica · EsFO</b></p>
+      <p>Versão ${esc(VERSAO)}</p>
+      <p>Desenvolvido por ${esc(DESENVOLVEDOR)}</p>
+    </div>
   `, "mais");
 }
 
