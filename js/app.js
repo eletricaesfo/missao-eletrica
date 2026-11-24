@@ -371,7 +371,11 @@ async function salvarNova(f) {
     // Prepara a foto antes de gravar: se ela não abrir, a missão não é criada pela metade.
     const foto = d.foto && d.foto.size ? await comprimir(d.foto) : null;
     const agora = Date.now();
-    const ref = await addDoc(collection(db, "missoes"), {
+    // Missão e foto gravadas juntas (tudo ou nada): a missão nunca aparece no painel
+    // antes da foto, nem fica sem a foto se a conexão cair no meio.
+    const ref = doc(collection(db, "missoes"));
+    const b = writeBatch(db);
+    b.set(ref, {
       titulo: d.titulo.trim(), descricao: (d.descricao || "").trim(), local, tipo: d.tipo,
       prioridade: d.prioridade, peso: Number(d.peso) || 1, risco: !!d.risco,
       materiaisNecessarios: (d.materiais || "").trim(),
@@ -379,10 +383,9 @@ async function salvarNova(f) {
       status: "painel", executor: null, criadoPor: S.me.id, criadaEm: agora,
       historico: [{ em: agora, por: S.me.id, acao: "Cadastrou a missão" }],
     });
+    if (foto) b.set(doc(collection(db, "fotos")), { missaoId: ref.id, tipo: "antes", img: foto, tam: foto.length, por: S.me.id, em: agora });
+    await b.commit();
     novoId = ref.id;
-    if (foto) {
-      await addDoc(collection(db, "fotos"), { missaoId: ref.id, tipo: "antes", img: foto, tam: foto.length, por: S.me.id, em: Date.now() });
-    }
   }, "Missão cadastrada");
   btn.disabled = false; btn.innerHTML = `${ic("nova")} Cadastrar missão`;
   if (ok && novoId) { S.dirty = false; location.hash = "#/missao/" + novoId; }
@@ -504,16 +507,24 @@ function janelaDesignar(m) {
     </div>`;
 }
 
+// "Versão" da missão para o cache de fotos: muda quando alguém conclui, encerra,
+// reabre ou registra qualquer ação. Assim quem já tinha aberto a missão (ex.: o
+// responsável que vai validar) vê as fotos novas, em vez de ficar com a lista antiga.
+const versaoFotos = (m) => m ? `${m.status}|${(m.historico || []).length}|${m.fotosLimpasEm || ""}` : "";
+
 async function carregarFotos(id) {
+  const ver = versaoFotos(S.missoes.find((m) => m.id === id));
+  let erro = false;
   try {
-    if (!S.fotos[id]) {
+    if (!S.fotos[id] || S.fotos[id].ver !== ver) {
       const q = await getDocs(query(collection(db, "fotos"), where("missaoId", "==", id)));
-      S.fotos[id] = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.em - b.em);
+      S.fotos[id] = { ver, lista: q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.em - b.em) };
     }
-  } catch (e) { console.error(e); S.fotos[id] = []; }
+  } catch (e) { console.error(e); erro = true; } // não guarda no cache: tenta de novo ao reabrir
   const el = document.getElementById("fotos");
   if (!el || S.cur !== id) return;
-  const lista = S.fotos[id].filter((f) => String(f.img).startsWith("data:image/"));
+  if (erro) { el.innerHTML = '<p class="vazio">Não foi possível carregar as fotos agora (verifique a internet e abra a missão de novo).</p>'; return; }
+  const lista = S.fotos[id].lista.filter((f) => String(f.img).startsWith("data:image/"));
   el.innerHTML = lista.length
     ? lista.map((f) => `<figure><img src="${f.img}" loading="lazy" data-act="zoom" alt="Foto ${esc(FOTO_TIPO[f.tipo] || f.tipo)}"><figcaption>${esc(FOTO_TIPO[f.tipo] || f.tipo)} · ${fmtData(f.em)}</figcaption></figure>`).join("")
     : (S.missoes.find((m) => m.id === id)?.fotosLimpasEm
@@ -929,20 +940,20 @@ function viewRelatorios() {
       ${Object.keys(porOrigem).length ? `<p><b>Por origem:</b> ${Object.entries(porOrigem).sort((a, b) => (b[1].feitas + b[1].sem) - (a[1].feitas + a[1].sem))
         .map(([o, n]) => `${esc(origemNome(o))} (${n.feitas} executada${n.feitas === 1 ? "" : "s"}${n.sem ? `, ${n.sem} sem execução` : ""})`).join("; ")}</p>` : ""}
       <table class="tab">
-        <tr><th>Data</th><th>Missão</th><th>Local</th><th>Equipe</th><th>Serviço realizado</th></tr>
-        ${lista.map((m) => {
+        <tr><th class="num">Nº</th><th>Data</th><th>Missão</th><th>Local</th><th>Equipe</th><th>Serviço realizado</th></tr>
+        ${lista.map((m, i) => {
           const mat = (m.materiaisUsados || []).map((u) => `${u.qtd} ${esc(u.unidade)} ${esc(u.nome)}`).join(", ");
-          return `<tr><td>${fmtData(m.validadaEm)}</td><td>${esc(m.titulo)}<br><small>${esc(m.tipo)} · peso ${Number(m.peso) || 1} · origem: ${esc(origemTexto(m))}</small></td>
+          return `<tr><td class="num">${i + 1}</td><td>${fmtData(m.validadaEm)}</td><td>${esc(m.titulo)}<br><small>${esc(m.tipo)} · peso ${Number(m.peso) || 1} · origem: ${esc(origemTexto(m))}</small></td>
           <td>${esc(m.local)}</td>
           <td><b>${esc(nomeDe(m.executor))}</b>${auxDe(m).length ? `<br><small>Aux.: ${esc(auxTexto(m))}</small>` : ""}</td>
           <td class="obs">${m.obs ? esc(m.obs) : "—"}${mat ? `<br><small>Material: ${mat}</small>` : ""}${m.tempoMin ? `<br><small>Tempo: ${m.tempoMin} min</small>` : ""}</td></tr>`;
         }).join("")}
       </table>
-      ${lista.length ? "" : '<p class="vazio">Nenhuma missão validada no período.</p>'}
+      ${lista.length ? `<p class="total-rel">Total: <b>${lista.length}</b> missão(ões) realizada(s) no período.</p>` : '<p class="vazio">Nenhuma missão validada no período.</p>'}
       ${semExec.length ? `<h3>Encerradas sem execução (${semExec.length})</h3>
       <table class="tab">
-        <tr><th>Data</th><th>Missão</th><th>Local</th><th>Executor</th><th>Motivo</th></tr>
-        ${semExec.map((m) => `<tr><td>${fmtData(m.semExecEm)}</td><td>${esc(m.titulo)}<br><small>origem: ${esc(origemTexto(m))}</small></td>
+        <tr><th class="num">Nº</th><th>Data</th><th>Missão</th><th>Local</th><th>Executor</th><th>Motivo</th></tr>
+        ${semExec.map((m, i) => `<tr><td class="num">${i + 1}</td><td>${fmtData(m.semExecEm)}</td><td>${esc(m.titulo)}<br><small>origem: ${esc(origemTexto(m))}</small></td>
           <td>${esc(m.local)}</td><td>${esc(nomeDe(m.executor))}${auxDe(m).length ? `<br><small>Aux.: ${esc(auxTexto(m))}</small>` : ""}</td>
           <td>${esc(motivoNome(m.motivoSemExec))}${m.solucionadoPor ? ` (por ${esc(m.solucionadoPor)})` : ""}${m.semExecObs ? `<br><small>${esc(m.semExecObs)}</small>` : ""}</td></tr>`).join("")}
       </table>` : ""}
@@ -1370,15 +1381,15 @@ async function exportar(tipo) {
     const { de, ate, cadete } = S.rel;
     const ini = Date.parse(de + "T00:00:00"), fim = Date.parse(ate + "T23:59:59");
     linhas = validadasNoPeriodo(ini, fim, cadete)
-      .map((m) => ({
-        "Validada em": fmtData(m.validadaEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local,
+      .map((m, i) => ({
+        "Nº": i + 1, "Validada em": fmtData(m.validadaEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local,
         Executor: nomeDe(m.executor), Auxiliares: auxTexto(m), Peso: Number(m.peso) || 1, "Cadastrada por": nomeDe(m.criadoPor),
         "Cadastrada em": fmtData(m.criadaEm), Origem: origemTexto(m), "Concluída em": fmtData(m.concluidaEm), "Tempo (min)": m.tempoMin || "",
         "Material usado": (m.materiaisUsados || []).map((u) => `${u.qtd} ${u.unidade} ${u.nome}`).join("; "),
         "Serviço realizado / observações": m.obs || "",
       }));
-    extra = semExecNoPeriodo(ini, fim, cadete).map((m) => ({
-      "Encerrada em": fmtData(m.semExecEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local, Executor: nomeDe(m.executor), Auxiliares: auxTexto(m),
+    extra = semExecNoPeriodo(ini, fim, cadete).map((m, i) => ({
+      "Nº": i + 1, "Encerrada em": fmtData(m.semExecEm), Missão: m.titulo, Tipo: m.tipo, Local: m.local, Executor: nomeDe(m.executor), Auxiliares: auxTexto(m),
       Motivo: motivoNome(m.motivoSemExec), "Solucionado por": m.solucionadoPor || "", Justificativa: m.semExecObs || "",
       Origem: origemTexto(m), "Cadastrada por": nomeDe(m.criadoPor), "Cadastrada em": fmtData(m.criadaEm),
     }));
@@ -1662,6 +1673,15 @@ $app.addEventListener("submit", (e) => {
   h(e.target);
 });
 
+// Ao tocar em um campo de foto, o formulário passa a contar como "em preenchimento".
+// Sem isso, enquanto o cadete estava na câmera/galeria, qualquer atualização vinda do
+// banco (outro cadete capturando ou cadastrando missão) redesenhava a tela e o campo
+// de foto voltava vazio — a foto escolhida "sumia". Era o caso típico da conclusão,
+// em que a foto é o primeiro campo do formulário.
+$app.addEventListener("click", (e) => {
+  if (e.target.matches?.('input[type="file"]') && e.target.closest("form")) S.dirty = true;
+}, true);
+
 $app.addEventListener("input", (e) => {
   if (e.target.id === "matBusca") return filtrarMateriais(e.target.value);
   if (e.target.closest("form")) S.dirty = true;
@@ -1669,6 +1689,7 @@ $app.addEventListener("input", (e) => {
 
 $app.addEventListener("change", async (e) => {
   const t = e.target;
+  if (t.type === "file" && t.closest("form")) S.dirty = true;
   if (t.id === "filtroTipo") { S.filtroTipo = t.value; route(); }
   else if (t.id === "auxSel") {
     const outro = t.value === "__outro";
