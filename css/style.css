@@ -61,6 +61,10 @@ main { max-width: 720px; margin: 0 auto; padding: 8px 16px 100px; }
   font-weight: 700; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; border-radius: 20px; padding: 5px 12px; }
 .login h1 { color: var(--azul); font-size: 1.35rem; }
 .login p { color: var(--suave); font-size: .9rem; }
+.login .versao { margin: 18px 0 0; font-size: .75rem; opacity: .85; }
+/* Mais › Sobre o app */
+.sobre p { margin: 4px 0; font-size: .9rem; }
+.sobre p:not(:first-of-type) { color: var(--suave); }
 
 /* Botões */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 10px;
