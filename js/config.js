@@ -8,7 +8,7 @@
 // Versão do app e desenvolvedor (aparecem na tela de entrada e em Mais › Sobre o app).
 // A cada atualização publicada, aumente a VERSAO e use o MESMO número no CACHE do sw.js
 // (é a troca do sw.js que faz os celulares baixarem a versão nova).
-export const VERSAO = "1.13";
+export const VERSAO = "1.14";
 export const DESENVOLVEDOR = "Cad. Romeiro";
 
 export const firebaseConfig = {
