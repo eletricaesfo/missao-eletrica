@@ -5,10 +5,10 @@
 
 // 1) Cole aqui o objeto "firebaseConfig" que o Firebase mostra ao
 //    registrar o app web (Configurações do projeto > Seus apps).
-// Versão do app e desenvolvedor (aparecem na tela de entrada e em Mais › Sobre o app).
+// Versão do app e desenvolvedor (aparecem na tela de entrada e no rodapé de todas as guias).
 // A cada atualização publicada, aumente a VERSAO e use o MESMO número no CACHE do sw.js
 // (é a troca do sw.js que faz os celulares baixarem a versão nova).
-export const VERSAO = "1.14";
+export const VERSAO = "1.15";
 export const DESENVOLVEDOR = "Cad. Romeiro";
 
 export const firebaseConfig = {
