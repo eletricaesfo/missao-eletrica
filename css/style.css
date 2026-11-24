@@ -62,9 +62,9 @@ main { max-width: 720px; margin: 0 auto; padding: 8px 16px 100px; }
 .login h1 { color: var(--azul); font-size: 1.35rem; }
 .login p { color: var(--suave); font-size: .9rem; }
 .login .versao { margin: 18px 0 0; font-size: .75rem; opacity: .85; }
-/* Mais › Sobre o app */
-.sobre-app p { margin: 4px 0; font-size: .9rem; }
-.sobre-app p:not(:first-of-type) { color: var(--suave); }
+/* Rodapé com versão e desenvolvedor (fim de todas as guias) */
+.rodape-versao { margin: 28px 0 0; padding-top: 10px; border-top: 1px solid var(--borda);
+  text-align: center; font-size: .72rem; color: var(--suave); }
 
 /* Botões */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 10px;
