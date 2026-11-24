@@ -281,7 +281,9 @@ function shell(titulo, corpo, ativo) {
       <img class="brasao" src="icons/esfo.png" alt="EsFO">
     </header>
     <div class="faixa"><span>${ic("usuario")} ${esc(S.me.nome || S.me.id)}</span>${isCmd() ? '<b class="tag">RESPONSÁVEL</b>' : ""}</div>
-    <main>${corpo}</main>
+    <main>${corpo}
+      <footer class="rodape-versao no-print">Missão Elétrica · EsFO · Versão ${esc(VERSAO)} · Desenvolvido por ${esc(DESENVOLVEDOR)}</footer>
+    </main>
     <nav class="menu">${itens.map(([k, l, i]) => `<a href="#/${k}" class="${ativo === k ? "on" : ""}">${ic(i)}<span>${l}</span></a>`).join("")}</nav>`;
 }
 
@@ -707,12 +709,6 @@ function viewMais() {
       <button class="link" data-act="sair">${ic("sair")}<span>Sair<small>${esc(S.me.id)}</small></span></button>
     </div>
     <p class="dica">Para instalar no celular: no Chrome (Android), menu ⋮ › "Instalar app"; no Safari (iPhone), Compartilhar › "Adicionar à Tela de Início".</p>
-    <div class="box sobre-app">
-      <h3>${ic("raio", "mini-ic")} Sobre o app</h3>
-      <p><b>Missão Elétrica · EsFO</b></p>
-      <p>Versão ${esc(VERSAO)}</p>
-      <p>Desenvolvido por ${esc(DESENVOLVEDOR)}</p>
-    </div>
   `, "mais");
 }
 
