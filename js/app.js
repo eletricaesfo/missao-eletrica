@@ -707,7 +707,7 @@ function viewMais() {
       <button class="link" data-act="sair">${ic("sair")}<span>Sair<small>${esc(S.me.id)}</small></span></button>
     </div>
     <p class="dica">Para instalar no celular: no Chrome (Android), menu ⋮ › "Instalar app"; no Safari (iPhone), Compartilhar › "Adicionar à Tela de Início".</p>
-    <div class="box sobre">
+    <div class="box sobre-app">
       <h3>${ic("raio", "mini-ic")} Sobre o app</h3>
       <p><b>Missão Elétrica · EsFO</b></p>
       <p>Versão ${esc(VERSAO)}</p>
