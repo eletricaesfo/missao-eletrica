@@ -182,6 +182,9 @@ label.check input { width: auto; margin: 0; }
 .cab-rel div { flex: 1; text-align: center; }
 .cab-rel b { font-size: .8rem; color: var(--suave); }
 .cab-rel h2 { margin: 4px 0 0; font-size: 1.1rem; }
+/* Numeração de ordem das missões no relatório */
+.tab th.num, .tab td.num { width: 2.6em; text-align: center; font-weight: 700; white-space: nowrap; }
+.total-rel { text-align: right; margin: 6px 0 14px; }
 
 .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: var(--azul-esc); color: #fff;
   padding: 10px 16px; border-radius: 8px; z-index: 20; max-width: 90vw; box-shadow: 0 4px 12px rgba(0,0,0,.25);
